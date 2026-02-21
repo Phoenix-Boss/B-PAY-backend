@@ -1,0 +1,24 @@
+services:
+  - type: web
+    name: b-pay-backend
+    env: node
+    region: oregon  # Choose region closest to your users/providers
+    plan: starter   # Free tier to start
+    buildCommand: npm install && npm run build
+    startCommand: node dist/index.js
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 10000
+      - key: ALLOWED_ORIGINS
+        sync: false
+      # Provider Keys (Add these in Render Dashboard for security)
+      - key: PAYSTACK_SECRET_KEY
+        sync: false
+      - key: PAYSCRIBE_SECRET_KEY
+        sync: false
+      - key: JUICYWAY_SECRET_KEY
+        sync: false
+      - key: KORAPAY_SECRET_KEY
+        sync: false
