@@ -53,12 +53,22 @@ order turns out to be a "Mavins-web: ..." or "Velune: ..." task:
    `git am` verification step) — not this one.
 5. **The hand-off you give the human must say explicitly which local
    folder to be in**, since they're very likely still sitting in
-   whichever repo's folder they last used. Template:
+   whichever repo's folder they last used — and note that a repo's
+   local clone directory name doesn't always match the GitHub repo's
+   own casing (confirmed this session: `Mavins-web` on GitHub is
+   cloned locally as `mavins-web`, lowercase — check "Sibling repos"
+   below for each repo's actual local folder name rather than assuming
+   it matches the URL). Template:
    ```
-   cd ~/<other-repo-folder>          # NOT this repo's folder
+   cd ~/<other-repo-local-folder>    # NOT this repo's folder, and NOT
+                                      # necessarily the GitHub-repo casing
    git am ~/storage/downloads/NNNN-....patch
-   git push origin main              # only if that repo pushes directly —
-                                      # check its own handover.md first
+   git push origin main              # confirm against that repo's own
+                                      # handover.md — B-Pay-backend and
+                                      # Mavins-web both push directly
+                                      # (one to a fork+PR, one straight
+                                      # to main), don't assume every
+                                      # repo does
    ```
 6. Update **that repo's own** `handover.md` task queue and "Patches
    issued so far" log — not this file's — as part of the same commit,
@@ -88,12 +98,17 @@ and jump on its own.
   one open PR against upstream).
 - **`Mavins-web`** — `https://github.com/Zapier-codes/Mavins-web` —
   confirmed **not** a fork (checked directly via the GitHub API this
-  session: `fork: false`, no parent repo) — that repo's own
-  `handover.md` has the human run `git am` and, per its own
-  instructions, apply directly with no PR step described there. Don't
-  assume this repo's fork→PR mechanics apply there; if a future session
-  finds that's changed, update this bullet and Mavins-web's matching
-  bullet about this repo to match.
+  session: `fork: false`, no parent repo) — no PR step; the human runs
+  `git am` **followed by `git push origin main`** directly against
+  `main` (a direct push is the whole delivery there, not a step toward
+  a PR — see that repo's own `handover.md` for the full write-up).
+  **Local clone directory is `mavins-web`, lowercase** — not
+  `Mavins-web` — even though the GitHub repo itself is capitalized;
+  using the capitalized form for `cd` will fail with "not a git
+  repository". (Correction added this session — an earlier pass
+  through this file omitted the push step and used the GitHub-repo
+  casing for the local folder; both are now fixed here and in
+  Mavins-web's own copy of this block.)
 - **`Velune`** — `https://github.com/Zapier-codes/Velune` — no
   `handover.md` exists there yet as of this note. This repo's own Task
   22 (see "Cross-repo continuation" below) is an investigation-only
@@ -1504,4 +1519,13 @@ session rule as this file.
   against `a08fe58` (this session's own prior commit, i.e.
   `0007`+`0008`+`0009` applied) in a fresh `/tmp` clone. Requires
   `0007`, `0008`, and `0009` applied first.
-
+- `0011-mavins-web-push-step-and-folder-casing-fix.patch` — docs-only
+  correction to `0010`: Mavins-web's push step was missing from the
+  "Sibling repos" note (it does push directly to `main`, no PR, since
+  it isn't a fork), and the local clone folder is `mavins-web`
+  (lowercase), not the GitHub repo's own `Mavins-web` casing. A
+  matching correction was made in Mavins-web's own `handover.md`
+  (separate patch, that repo — see its own patch log). Verified with
+  `git am` against `41a8b4c` (this session's own prior commit, i.e.
+  `0007`–`0010` applied) in a fresh `/tmp` clone. Requires `0007`
+  through `0010` applied first.
