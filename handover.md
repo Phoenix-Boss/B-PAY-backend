@@ -33,20 +33,21 @@ needs to be.
    git log --oneline upstream/main -3
    ```
    - If `origin/main`'s latest commit isn't `upstream/main`'s latest
-     (or an ancestor of it) — the previous session's PR is **still
-     open, unmerged**. That's fine, it doesn't block starting a new
-     task (task work continues to layer on top of `origin/main`
-     regardless of upstream merge status), but note it plainly to the
-     human when you hand off this session's own patch, so they know
-     there may be more than one PR outstanding, not just the newest
-     one.
+     (or an ancestor of it) — PR #2 is **still open, unmerged**. That's
+     the expected, intentional steady state (see "Pull request
+     workflow" below — we're deliberately accumulating every session's
+     commits into this one PR until Phoenix-Boss merges it all at
+     once), so it doesn't block starting a new task. Just confirm PR
+     #2 itself is still open and still the one and only PR (don't
+     create a second one — see below), and note the current state
+     plainly to the human when you hand off this session's patch.
    - If a human-provided update says a PR *was* merged, still verify
      it here against `upstream/main` yourself rather than taking the
      claim at face value — merges can be delayed, rejected, or land on
      a different branch than expected.
-   - Either way, update the "Outstanding PRs" note near the end of the
-     "Pull request workflow" section below to reflect what you found,
-     so the next session doesn't have to re-derive it.
+   - Either way, update the "Outstanding PRs status" note near the end
+     of the "Pull request workflow" section below to reflect what you
+     found, so the next session doesn't have to re-derive it.
 3. **Read this whole file**, especially the "Confirmed research
    findings" section below — it exists so you don't have to re-derive
    facts a previous session already verified. Then find the **first
@@ -92,115 +93,110 @@ needs to be.
 9. **Present the file** with the `present_files` tool so the human can
    see and download it.
 10. **Tell the human the exact commands to run**, every time, verbatim —
-   this now ends with opening a pull request, not a bare push (see
-   "Pull request workflow" section below for why and for the exact
-   command forms):
+   just `git am` + `git push origin main`, **no `gh pr create` line
+   anymore** (see "Pull request workflow" section below — PR #2 is
+   already open and reused for every session from here on; do not
+   have the human run `gh pr create` again, it will just fail with
+   "a pull request ... already exists" since one already covers this
+   exact branch pair):
    ```
    git am ~/storage/downloads/NNNN-short-description.patch
    git push origin main
-   gh pr create --repo Phoenix-Boss/B-PAY-backend --base main --head Zapier-codes:main --title "type(scope): short description — Task N" --body "See commit message for details."
    ```
    (Termux's shared Downloads folder — confirmed earlier in this
    project as `~/storage/downloads`, lowercase, after
    `termux-setup-storage` has been run once. If a session ever gets a
    "no such file" report back, the first thing to check is exact
-   case/spelling of that path, not the patch itself. If `gh` isn't
-   installed/authenticated in Termux, give the browser-link fallback
-   from the PR workflow section instead of the `gh pr create` line.)
+   case/spelling of that path, not the patch itself. Pushing to
+   `origin/main` automatically adds the new commit to PR #2 — GitHub
+   does this on its own for any open PR on that branch pair, no extra
+   command needed.)
 11. **Check the box** for the task you just did in this file as soon
-    as the PR is confirmed **open** — do NOT wait for the owner
-    (Phoenix-Boss) to actually merge it. Opening the PR is this
-    project's definition of "done" for a task; merge timing is the
-    real owner's call, on their own schedule, and isn't something a
-    session should block on or keep re-checking. Add a short "what was
-    found / what changed" note under the task (same style as Task
+    as the commit is confirmed **pushed** to `origin/main` (which
+    auto-joins PR #2 — see below) — do NOT wait for the owner
+    (Phoenix-Boss) to actually merge anything. Pushing the commit is
+    this project's definition of "done" for a task; merge timing is
+    the real owner's call, on their own schedule, and isn't something
+    a session should block on or keep re-checking. Add a short "what
+    was found / what changed" note under the task (same style as Task
     3/Task 4 in the Mavins-web project's handover.md — that project is
     the reference example for how this whole process should read),
-    and if you know the PR is still unmerged as of this session, say
-    so plainly in that note (e.g. "PR open, not yet merged by
-    Phoenix-Boss") rather than implying it landed upstream — that's
-    what step 2's "Outstanding PRs" check-in is for on the *next*
-    session, not a reason to leave this task's box unchecked now.
-    Commit that edit to `handover.md` **as part of the same commit**
-    as the code change (one commit, one patch, per session — don't
+    and if you know PR #2 is still unmerged as of this session, say
+    so plainly in that note (e.g. "pushed, part of PR #2, not yet
+    merged by Phoenix-Boss") rather than implying it landed upstream —
+    that's what step 2's "Outstanding PRs" check-in is for on the
+    *next* session, not a reason to leave this task's box unchecked
+    now. Commit that edit to `handover.md` **as part of the same
+    commit** as the code change (one commit, one patch, per session —
+    don't split the code change and the checkbox update into two).
     split the code change and the checkbox update into two).
 
 ---
 
-## Pull request workflow (fork → upstream) — read this before step 9 above
+## Pull request workflow (fork → upstream) — read this before step 10 above
 
 **This repo is a fork.** Confirmed directly against GitHub (not
 assumed): `Zapier-codes/B-PAY-backend` is forked from, and its
 `network_root_nwo`/parent is, `Phoenix-Boss/B-PAY-backend`. That
 second repo is the **real owner's** repo — `Phoenix-Boss` — and only
-they can merge into it. This means every session's work reaches the
-real codebase in two hops, not one:
+they can merge into it. Every session's work reaches the real
+codebase in two hops: (1) push to our own fork's `main`, (2) that
+code sits in a pull request until Phoenix-Boss merges it.
 
-1. The human applies the session's patch and pushes it to **our own
-   fork's `main`** (`origin`, i.e. `Zapier-codes/B-PAY-backend`) — this
-   part hasn't changed, it's step 9's `git am` + `git push origin main`.
-2. Pushing to our fork's `main` does **not** put the code in front of
-   Phoenix-Boss. A **pull request** from our fork's `main` into
-   `Phoenix-Boss/B-PAY-backend`'s `main` has to be opened separately,
-   every time, so the real owner reviews and merges it on their end.
-   Never tell the human the job is done after step 9's push alone —
-   the PR-open command is a required last line, not optional cleanup.
+**⚠️ There is already ONE open PR that covers this whole project —
+PR #2 (`https://github.com/Phoenix-Boss/B-PAY-backend/pull/2`),
+`Zapier-codes:main` → `Phoenix-Boss:main`. No session should ever run
+`gh pr create` (or the browser compare-URL) again for this repo.**
+GitHub only allows one open PR per branch pair, and — confirmed
+directly by trying it — a second `gh pr create` attempt just fails
+with `a pull request for branch "Zapier-codes:main" into branch
+"main" already exists`, pointing back at PR #2. This isn't a fallback
+behavior to guard against, it's the whole point: **every future
+session's commit, once pushed to `origin/main`, joins PR #2
+automatically** — GitHub appends new commits on a branch to whatever
+open PR already exists for that branch, with zero extra command
+needed. So step 10 above is now just `git am` + `git push origin
+main`, full stop.
 
-This matches the precedent already on GitHub: the existing merge
-commit `900db65` ("Merge pull request #1 from Zapier-codes/main") on
-`Phoenix-Boss/B-PAY-backend` shows this exact fork→PR flow already
-happened once for the earlier commits. Keep using the same base/head
-branch names (`main` → `main`) unless a future session has a specific
-reason to use a feature branch instead.
+**Why we're doing it this way (explicit project decision, not a
+guess):** the plan is to leave PR #2 open and keep accumulating every
+session's commits into it — task after task — **until all the fixes
+in this project's task queue are actually done**, rather than opening
+and closing a separate small PR per task. Phoenix-Boss then reviews
+and merges the whole batch **once, in one shot**, at whatever time is
+convenient for him. This is intentional, not a workaround — don't
+"helpfully" split things into smaller PRs, don't close PR #2 early,
+and don't ask the human to merge anything on the fork side to try to
+"clean up" — the fork's `main` accumulating commits *is* the plan.
 
-**The exact command to give the human, every session, from Termux,
-right after `git push origin main`:**
+**What this means for step 11 (marking a task done):** unchanged in
+spirit from before — check the task's box as soon as its commit is
+pushed to `origin/main`, don't wait for Phoenix-Boss to merge. The
+only difference is there's no PR-open confirmation step anymore since
+there's nothing new to open — pushing is now the entire finish line.
 
-```
-gh pr create --repo Phoenix-Boss/B-PAY-backend --base main --head Zapier-codes:main --title "type(scope): short description — Task N" --body "See commit message for details."
-```
-
-- Requires the GitHub CLI (`gh`) installed and authenticated in
-  Termux (`gh auth login`, one-time setup). If a session gets a report
-  back that `gh` isn't found or isn't authenticated, don't try to debug
-  Termux's package state remotely — just fall back to the browser-link
-  method below for that session and note in this file that `gh` still
-  needs setup on the human's device.
-- `--title`/`--body` should echo the same commit message the session
-  already wrote in step 5 — don't write a new one from scratch.
-
-**Fallback if `gh` isn't available (always works, no CLI needed):**
-Give the human this exact URL to open in a browser (works from
-Termux's browser or any device) — GitHub pre-fills a PR draft
-comparing the two `main` branches:
-```
-https://github.com/Phoenix-Boss/B-PAY-backend/compare/main...Zapier-codes:B-PAY-backend:main?expand=1
-```
-They just need to confirm the title/description (again, echo the
-commit message) and click "Create pull request."
-
-**When to mark a task "done":** opening the PR is this project's
-finish line for a task — check the box in step 11 above as soon as the
-PR is confirmed open, don't hold a task open waiting for
-Phoenix-Boss to actually merge it. Merge timing is entirely the real
-owner's call, on their own schedule. "PR open, unmerged" is a normal,
-expected steady state for this repo, not something to chase or flag
-as blocking — the one exception is step 2 at the top of this file,
-where every session does a quick, no-drama check of merge status
-purely to keep this note accurate for whoever reads it next.
+**What a session should still verify at the top of every session
+(step 2 above):** that PR #2 is still open (hasn't been merged or
+closed out from under this plan) and still targeting the right branch
+pair. If a session's step-2 check ever finds PR #2 has been merged —
+i.e. `upstream/main`'s latest commit is no longer `900db65` — that's
+a real state change worth flagging clearly to the human (see the
+status line below), since it may mean the queue-until-done plan needs
+revisiting or a fresh PR will eventually be needed for whatever's
+still unmerged. Until that happens, "PR #2 open, accumulating
+commits, unmerged" is the fully expected steady state — not something
+to chase, escalate, or try to fix.
 
 **Outstanding PRs status (updated by whichever session last checked —
-see step 2 above):** As of the session that wrote this paragraph, a PR
-covering both `7b12a94` ("docs(handover): create task queue...") and
-`a4f991c` ("docs(handover): document fork→upstream PR workflow...")
-has been **opened** against `Phoenix-Boss/B-PAY-backend` and is
-**confirmed not yet merged** — `upstream/main`'s latest is still
-`900db65` (the PR #1 merge, covering commits only through `0616b8e`).
-Per the policy above, this does NOT block starting new task work; it's
-here only so the next session's step-2 check has a known prior state
-to compare against instead of starting from scratch. Update this
-paragraph (don't just append another one) once a session's step-2
-check finds `upstream/main` has moved past `900db65`.
+see step 2 above):** As of the session that wrote this paragraph, PR
+#2 is **open** on `Phoenix-Boss/B-PAY-backend`, `Zapier-codes:main` →
+`Phoenix-Boss:main`, containing three commits so far (`7b12a94`,
+`a4f991c`, `981f5ed`) — **confirmed unmerged**, `upstream/main`'s
+latest is still `900db65` (the earlier PR #1 merge, covering commits
+only through `0616b8e`). Per the policy above, every new pushed commit
+keeps joining this same PR #2 automatically; update this paragraph
+(don't append a new one) each time a session's step-2 check finds
+something has changed — new commits added, or (eventually) merged.
 
 ---
 
