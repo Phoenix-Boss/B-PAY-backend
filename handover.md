@@ -1147,7 +1147,7 @@ per the note above), and `assertValidAmount`'s logic standalone (7
 cases: valid/zero/negative/numeric-string/NaN/Infinity/small-decimal —
 all correct).
 
-### Task 12 — Idempotency protection [ ]
+### Task 12 — Idempotency protection [x]
 This one needs a decision, not just code: this repo currently has no
 persistence layer at all (no database). A real fix needs *somewhere*
 to remember "we already processed reference X" across requests — that
@@ -1216,10 +1216,9 @@ after use) exercised `assertValidReferenceFormat` against 8 cases
 Paystack reference / empty string / non-string / Korapay with
 special characters allowed through / Korapay empty string rejected /
 JuicyWay pass-through) — all eight matched expectation.
-**Why the box stays unchecked:** the actual storage/architecture
-decision this task centers on has not been made — see the new "Known
-issues" entry below, which is this session's explicit hand-off of
-that decision to the project owner.
+**(Originally left unchecked pending the storage/architecture decision
+below — resolved and box now checked, see this session's note
+immediately after.)**
 
 **Update — decision received, see "Project owner decisions" → Decision
 1 near the top of this file:** the owner picked option (b) — reference
@@ -1230,6 +1229,26 @@ further code change here. What's now unblocked is a *new* task — Task
 23 below — to confirm every caller actually sends its own reference
 going forward, since the decision assumes that, rather than leaning on
 this backend's own `generateReference()` fallback.
+
+**This session (2026-08-27):** picked this up as the next actionable
+item in queue order — Tasks 6 and 8 are explicitly on hold, Task 9's
+own note says to skip straight to 9b, 9b is confirmed still blocked on
+Mavins-web's currency-list reconciliation, and Task 10's remaining
+`ROUTING_RULES` rework needs JuicyWay/Payscribe currency lists this
+backend doesn't have yet — none of that left anything actually
+actionable ahead of this task. Re-read `routes.js` directly (not just
+this file's prior notes) to confirm the two paragraphs above weren't
+just stale prose: `assertValidReferenceFormat(providerName, reference)`
+is present and wired into `POST /pay` exactly as described (no-op on
+omitted reference, non-empty-string check, Paystack charset check),
+matching Decision 1's resolution with nothing left to build here. The
+two paragraphs directly above had been left contradicting each other —
+one said the box stays unchecked pending a decision, the next said the
+decision arrived and needs no further code — so this was a stale
+bookkeeping gap, not an actual open task. No source file changed this
+session; only this file (checkbox + the note you're reading). Per this
+project's own rule, non-code (docs-only) sessions still get their own
+commit and patch — see `0012` in "Patches issued so far" below.
 
 ### Task 13 — Basic security hardening [ ]
 Add rate limiting on `POST /api/pay` and `POST /api/webhooks/:provider`
@@ -1529,3 +1548,15 @@ session rule as this file.
   `git am` against `41a8b4c` (this session's own prior commit, i.e.
   `0007`–`0010` applied) in a fresh `/tmp` clone. Requires `0007`
   through `0010` applied first.
+- `0012-task12-checkbox-reconciliation.patch` — docs-only, closes out
+  Task 12: no source file needed changing — `routes.js` already had
+  `assertValidReferenceFormat` wired into `POST /pay` exactly as
+  Task 12's own note described, and the storage/architecture decision
+  it was waiting on had already arrived (Decision 1). The task's own
+  "why box stays unchecked" paragraph had gone stale once the very next
+  paragraph recorded that decision, leaving two contradictory notes
+  back to back. Checked Task 12's box and replaced the stale paragraph
+  with a session note explaining the reconciliation. Verified with
+  `git am` against `71a9a3b` (this session's own prior HEAD, i.e.
+  `0007`–`0011` applied) in a fresh `/tmp` clone. Requires `0007`
+  through `0011` applied first.
