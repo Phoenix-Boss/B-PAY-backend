@@ -385,6 +385,60 @@ added, or (eventually) merged.
 
 ---
 
+## Project owner decisions (recorded verbatim from the owner — resolves previously open questions; read before touching reference/idempotency or anything wallet-related)
+
+### Decision 1 — Reference generation + ownership (resolves the storage question Task 12 deliberately left open, see "Known issues" below)
+The payment `reference` is generated **client-side, by the app**, at the
+moment payment is initiated — not by this backend, and not shown to the
+user. The app writes that reference to Supabase *before* the provider is
+called. When the provider's webhook fires, it is received by a **Supabase
+Edge Function**, not by an endpoint on this Express backend — the edge
+function reads the webhook payload, matches it against the reference
+already sitting in the Supabase table, and writes the result back to that
+table. This settles Task 12's open question: this backend does **not**
+need its own idempotency store (SQLite/JSON file, etc.) — that
+responsibility lives on the Supabase side, which already has a database.
+This backend's role stays what Task 12's in-scope half already built:
+accept whatever `reference` the caller supplies, validate its format, and
+forward it as-is to the provider.
+
+### Decision 2 — Wallet crediting logic (Supabase/Mavins-web side, not this backend — noted here for continuity)
+Once the Supabase Edge Function confirms a webhook, Supabase computes the
+wallet-balance update: the user pays the full campaign amount *plus* the
+platform fee up front; on confirmed receipt, the platform fee is deducted
+and only the **remainder** is what shows as the user's wallet balance.
+Whether anything is shown in the wallet at all depends on how the user
+got there:
+- **First-time users pay directly for a campaign** — there is no "top
+  up wallet, then spend from wallet" step for a new user. All new users
+  pay directly.
+- **Only returning users top up a wallet balance** ahead of spending it
+  on a future campaign.
+- So: if a **new** user pays directly and the webhook is confirmed, they
+  do **not** see a wallet balance change at all — they see a success
+  screen only ("your campaign is live"), never a wallet number. Wallet
+  balance display is a returning-user-only concept.
+
+### Decision 3 — Post-payment success UI (frontend concern, Mavins-web — noted here for continuity)
+On confirmed payment, both the paying user and admin (viewing the same
+campaign) see the same success treatment: a success screen stating the
+campaign is live, plus an animated workflow/pipeline visualization showing
+interconnections to the countries the user selected for the campaign,
+radiating out from a central "hub" node. This is a shared user/admin view,
+not two different screens.
+
+**Where this belongs:** Decisions 2 and 3 are Supabase/Mavins-web
+concerns, not B-Pay-backend concerns — this backend only initiates charges
+with a provider, it doesn't own wallet balances or the post-payment UI.
+Recorded here anyway per the project owner's request so no session
+(in this repo or Mavins-web) re-asks or re-derives it. Per this file's own
+"Cross-repo continuation" pattern (see below), whichever session next
+touches Mavins-web should copy Decisions 2 and 3 into that repo's own
+`handover.md` and open real implementation tasks there — this file isn't
+the place to design that UI/wallet code, just to preserve the decision.
+
+---
+
 ## Known issues already found (not yet fixed — each becomes its own task below)
 
 - `render.yaml` runs `buildCommand: npm install && npm run build` and
@@ -428,24 +482,18 @@ added, or (eventually) merged.
   `reference` — `generateReference()` mints a fresh one on every call
   in that case, so a client retry (e.g. a double-tap on mobile, with
   no client-side reference of its own) can still create two separate
-  charges for what the user experienced as one action. **Task 12
-  narrowed this down further and needs a project-owner decision, not
-  more guessing:** when a client DOES supply their own `reference`,
-  this backend now validates its format (Task 12) and forwards it
-  as-is — Paystack and (per its docs' wording, though not fully
-  confirmed the same way) Korapay will reject a second request reusing
-  that same reference rather than silently double-charging, so true
-  request-level idempotency already exists **for callers who supply
-  their own reference**. What's still missing, and needs a decision:
-  (a) should this backend itself persist "we've seen reference X"
-  (needs a real store — even a lightweight one, SQLite/JSON file — this
-  repo has none today), or (b) is that responsibility better placed on
-  the Mavins-web/Supabase side (which already has a database), with
-  this backend staying storage-free and just accepting/forwarding
-  whatever reference the caller gives it? Task 12 deliberately did NOT
-  pick one — building a database layer here without that decision
-  would be exactly the kind of bigger architecture change the task
-  description warned against guessing at.
+  charges for what the user experienced as one action. **RESOLVED by
+  the project owner — see "Project owner decisions" → Decision 1
+  above:** the app generates the reference client-side and stores it in
+  Supabase before calling this backend; webhook receipt of record and
+  reconciliation happen in a Supabase Edge Function, not here. This
+  backend does not build its own idempotency store — it only validates
+  and forwards whatever `reference` it's given (already done, Task 12).
+  In practice this means every caller is now expected to always supply
+  its own client-generated reference (not rely on this backend's
+  fallback `generateReference()`), so the true no-reference-supplied
+  double-charge case above should mostly stop occurring once the app
+  side is updated to match Decision 1 — see the new Task 23 below.
 - No rate limiting anywhere.
 - Provider error messages are passed back to the client close to
   verbatim (`error.message || 'Payment processing failed'`) — worth
@@ -1036,6 +1084,16 @@ decision this task centers on has not been made — see the new "Known
 issues" entry below, which is this session's explicit hand-off of
 that decision to the project owner.
 
+**Update — decision received, see "Project owner decisions" → Decision
+1 near the top of this file:** the owner picked option (b) — reference
+storage and idempotency live on the Supabase side via an Edge Function,
+not in this backend. This task's in-scope half (validate + forward a
+client-supplied reference) already matches that decision and needs no
+further code change here. What's now unblocked is a *new* task — Task
+23 below — to confirm every caller actually sends its own reference
+going forward, since the decision assumes that, rather than leaning on
+this backend's own `generateReference()` fallback.
+
 ### Task 13 — Basic security hardening [ ]
 Add rate limiting on `POST /api/pay` and `POST /api/webhooks/:provider`
 (e.g. `express-rate-limit`, a small dependency). Review every
@@ -1165,6 +1223,36 @@ repo's own new `handover.md`, broken into small tasks the same way
 this file is. Don't start implementing fixes in this same session —
 investigation and implementation are two different tasks here, exactly
 per this whole project's "one task per session" rule.
+
+### Task 23 — Confirm this backend no longer needs to be the reference source [ ]
+Per "Project owner decisions" → Decision 1: the app now generates and
+owns the payment `reference` client-side (stored in Supabase before this
+backend is ever called), and reconciliation happens in a Supabase Edge
+Function, not here. Audit `POST /pay` in `routes.js` and confirm that
+path: (a) still works correctly when the caller always supplies its own
+`reference` (the common case going forward), and (b) decide whether
+`generateReference()`'s own-reference fallback should stay as a defensive
+default for malformed/legacy callers or be treated as a bug signal (log a
+warning) now that it's not supposed to be relied on. Don't remove the
+fallback outright without checking whether any current caller still
+depends on it — this is an audit-and-decide task, not an automatic
+deletion.
+
+### Task 24 — Mavins-web: implement wallet-crediting + first-time-vs-returning-user logic [ ]
+Per "Project owner decisions" → Decisions 2 and 3 above (owner-provided,
+recorded in this file for continuity — implementation belongs in
+Mavins-web, not here). Copy Decisions 2 and 3 into Mavins-web's own
+`handover.md` as their own task(s) before starting: (1) client-side
+reference generation + Supabase write, to match Decision 1 and unblock
+this repo's Task 23; (2) wallet-balance computation on confirmed webhook
+(full amount minus platform fee, credited only for returning users doing
+a top-up — first-time users who pay directly for a campaign see no
+wallet balance change, ever); (3) the shared user/admin success screen
+with the animated country-interconnection pipeline visualization
+(central hub node, animated links out to each selected country) shown on
+confirmed payment. Split further once in Mavins-web's own file if any of
+(1)/(2)/(3) turns out to be bigger than one session — same one-task-per-
+session rule as this file.
 
 ---
 
