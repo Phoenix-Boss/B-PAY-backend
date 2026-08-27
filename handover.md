@@ -210,10 +210,32 @@ something has changed — new commits added, or (eventually) merged.
   this repo's `toSubUnit()`/`fromSubUnit()` already does this correctly
   for Paystack. Source: paystack.com/docs/api/ ("Sending an amount in
   subunits simply means multiplying the base amount by 100").
-- Webhook signature: header `x-paystack-signature`, value is
-  **HMAC-SHA512** of the **raw** request body, keyed with the secret
-  key. Source: paystack.com/docs/payments/webhooks/ (primary/official).
-  This repo has **no webhook receiver at all** yet — see Task queue.
+- Webhook signature: **confirmed directly** against
+  paystack.com/docs/payments/webhooks/ (fetched 2026-08-27). Header
+  `x-paystack-signature`, value is a hex-encoded **HMAC-SHA512** of the
+  event payload, keyed with the secret key. Important nuance found on
+  direct read: Paystack's own official Node example computes the hash
+  over `JSON.stringify(req.body)` — the body **after**
+  `express.json()` has parsed and re-serialized it — not the raw
+  request bytes. Task 2's speculative note (that Paystack needs true
+  raw bytes) turned out to be an overcautious guess for this specific
+  provider; implemented to match the primary source exactly
+  (`providers/paystack.js#verifyWebhookSignature`), with a code
+  comment flagging the re-serialization fragility this implies. No
+  `express.json({ verify })` change was needed for Paystack.
+  Also confirmed directly: there is **no dedicated "charge failed"
+  event** in Paystack's supported-events list — `charge.success` is
+  the only charge-related webhook; failures simply don't raise one.
+  Full event list (for future reference): charge.dispute.create/
+  remind/resolve, charge.success, customeridentification.failed/
+  success, dedicatedaccount.assign.failed/success, invoice.create/
+  payment_failed/update, paymentrequest.pending/success, refund.
+  failed/pending/processed/processing, subscription.create/disable/
+  expiring_cards/not_renew, transfer.failed/success/reversed.
+  This repo now implements `POST /api/webhooks/paystack` (Task 3):
+  verifies the signature (401 on failure/missing), logs
+  `charge.success` transactions, and logs-only for every other event
+  type (no persistence layer exists yet — see Task 12).
 
 **Korapay**
 - Charges/initialize endpoint (`POST /api/v1/charges/initialize`) —
@@ -406,7 +428,7 @@ findings section). Verified with `node --check routes.js` and
 `node --check index.js` (both pass; `index.js` wasn't touched but
 re-checked since it imports `routes.js`).
 
-### Task 3 — Paystack webhook: signature verification + handling [ ]
+### Task 3 — Paystack webhook: signature verification + handling [x]
 Confirm the HMAC-SHA512 / `x-paystack-signature` scheme directly
 against paystack.com/docs/payments/webhooks/ (already found via
 primary source, per the findings section — this task is mostly
@@ -414,6 +436,40 @@ implementation, light re-verification). Implement it in the webhook
 skeleton from Task 2, for the `paystack.success` (and relevant
 failure) events. If Task 2's raw-body note turned out to matter, deal
 with it here first since Paystack needs the true raw body.
+
+**What was found / what changed:** Re-confirmed the scheme directly by
+fetching paystack.com/docs/payments/webhooks/ rather than trusting the
+earlier secondary-source note. Two things changed from what Task 2
+assumed: (1) Paystack's own official example hashes
+`JSON.stringify(req.body)`, not raw request bytes, so the raw-body
+middleware flagged in Task 2 was **not** needed here — the
+`express.json()` parse-then-reserialize round-trip is what Paystack's
+own docs use — this is now the confirmed behavior for Paystack
+specifically, not necessarily for the other three providers (Task 4-6
+should each check independently, don't assume the same holds). (2)
+The event name is `charge.success` (not `paystack.success` as this
+task's own title text guessed) and there's no dedicated charge-failure
+event in Paystack's list at all — failures just don't raise a webhook.
+Implemented `verifyWebhookSignature(body, signature)` on the `Paystack`
+class in `providers/paystack.js` (HMAC-SHA512 keyed with the secret
+key, constant-time compare via `crypto.timingSafeEqual`, returns
+`false` — not a throw — on missing signature or length mismatch so the
+route can decide the HTTP response). Wired it into the `paystack`
+webhook handler in `routes.js`: invalid/missing signature now throws
+an error carrying `statusCode = 401`, which the route's catch block
+(also updated to respect `error.statusCode` instead of hardcoding 500)
+turns into a real `401` response instead of the previous unconditional
+`200`. On a verified `charge.success`, logs reference/amount/status;
+every other verified event type is logged generically since there's no
+persistence layer yet (Task 12) and no other event needs action yet.
+Updated the findings section above to "confirmed directly" with the
+exact primary URL and fetch date, plus the full current event list for
+future reference. Verified: `node --check routes.js` and
+`node --check providers/paystack.js` both pass; also wrote a throwaway
+`node -e` script exercising the HMAC logic against four cases (valid
+signature accepted, tampered signature rejected, missing signature
+rejected, wrong secret rejected) — all four passed — then deleted the
+script per the process doc's instruction not to commit scratch files.
 
 ### Task 4 — Korapay webhook: confirm signature scheme + implement [ ]
 The `x-korapay-signature` / HMAC-SHA256 scheme in the findings section
@@ -656,3 +712,10 @@ per this whole project's "one task per session" rule.
   against `3811f7f` (Task 1's commit) and pass `node --check` on both
   touched/importing files, in a fresh `/tmp` clone, before handing
   off.
+- `0002-paystack-webhook-signature.patch` — Task 3 (Paystack webhook
+  signature verification + `charge.success` handling,
+  `providers/paystack.js` + `routes.js`). Verified to apply cleanly
+  with `git am` against `9fc20f7` (the pushed, real hash of Task 2's
+  commit on `origin/main` — not the local `567d518` it had before the
+  human pushed it) and pass `node --check` on both touched files, in a
+  fresh `/tmp` clone, before handing off.
