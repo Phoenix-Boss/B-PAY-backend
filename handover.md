@@ -292,14 +292,61 @@ something has changed — new commits added, or (eventually) merged.
   same company (card issuing, USDC wallets) — don't assume the two
   document the same endpoints. This repo's base URL
   (`api-sandbox.spendjuice.com` / `api.spendjuice.com`, set in
-  `utils/helpers.js`) needs to be checked against docs.juicyway.com
-  specifically, since that's the one describing "Collections and
-  Payouts" (the actual use case here), not docs.spendjuice.org's
-  card/wallet APIs.
+  `utils/helpers.js`) matches what docs.juicyway.com/home itself shows
+  as its two `Development Environments` code samples — confirmed
+  directly, this base URL was already correct.
 - The existing `providers/juicyway.js` has an explicit
   `⚠️ Verify exact endpoint path in Juicyway docs` comment on the
-  `/v1/charges` call — this was already flagged as unverified by
-  whoever wrote it. Treat nothing in this file as confirmed.
+  `/v1/charges` call — this is still unverified (out of scope for
+  Task 5, which was webhooks-only; a future task should confirm the
+  payment-initialization endpoint path the same way Task 7 does for
+  Korapay).
+- Webhook scheme: **confirmed directly** against
+  docs.juicyway.com/webhooks.md (fetched 2026-08-27, via
+  docs.juicyway.com/llms.txt's page index — the `/webhooks` path alone
+  404s or isn't independently fetchable, use the `.md` suffix or go
+  through llms.txt). Materially different from both Paystack's and
+  Korapay's schemes, in three ways: (1) there is **no signature HTTP
+  header at all** — the checksum travels *inside* the JSON body as a
+  `checksum` field alongside `event`/`data`; (2) the HMAC key is the
+  merchant's **"business ID"**, a separate credential from the secret
+  API key used for REST calls — this repo has no env var for it yet,
+  so `providers/juicyway.js` now reads `JUICYWAY_BUSINESS_ID` directly
+  (not added to `getProviderKey()`'s public/secret map since it
+  doesn't fit that shape); (3) the signed string is
+  `${event}|${json_encoded_data}` where `data` must be JSON-encoded
+  with **keys in alphabetical order at every nesting level** — the
+  docs explicitly warn about this and show alphabetized nested example
+  payloads. Plain `JSON.stringify()` does not do this (insertion order,
+  not alphabetical), so a local `stableStringify()` helper was added
+  to `providers/juicyway.js` to match. Notably, Juicyway's own Node.js
+  doc example imports `json-stable-stringify` but then never calls it
+  — it uses plain `JSON.stringify(data)` in the actual `validateSignature`
+  code shown — which looks like a bug in their own sample; implemented
+  to match the explicitly documented alphabetical-order requirement
+  instead of that inconsistent sample. Digest is hex, **uppercase**:
+  the docs' own sample checksum value is uppercase hex and the
+  Python/Node examples both explicitly uppercase their digest, though
+  the PHP example lowercases both sides before comparing instead (a
+  cross-language inconsistency in Juicyway's own docs) — implemented
+  as uppercase-with-tolerant-comparison (the incoming checksum is also
+  uppercased before comparing), so a lowercase sender still verifies.
+  Verified the whole scheme numerically this session with a throwaway
+  script: valid checksum accepted, tampered data rejected, missing
+  checksum rejected, wrong business-ID rejected, checksum is
+  independent of the *sender's* top-level key order (since
+  `stableStringify` re-sorts regardless), and a lowercase-hex checksum
+  from a sender still verifies — all six passed, script deleted after.
+  Only one documented event pair exists so far:
+  `payment.session.succeeded` / `payment.session.failed`, both sharing
+  one payload shape with `data.status` = `success`/`failed`. Docs also
+  note **"In sandbox, successful transactions remain pending. Only
+  failure events are sent"** — relevant for Task 14's manual test pass,
+  since the success path can't be exercised via a real sandbox webhook.
+  This repo now implements `POST /api/webhooks/juicyway` (Task 5):
+  verifies the checksum (401 on failure/missing), logs both event
+  types with reference/amount/currency/status (no persistence layer
+  yet — see Task 12).
 
 **Payscribe**
 - **Waiting on a docs link from the project owner.** Check the
@@ -529,11 +576,51 @@ pass; a throwaway `node -e` script exercised valid/tampered/missing/
 wrong-secret cases (all four correct) plus the full-body-vs-data-only
 hash comparison — deleted after use, not committed.
 
-### Task 5 — JuicyWay webhook: find the real scheme + implement [ ]
+### Task 5 — JuicyWay webhook: find the real scheme + implement [x]
 Nothing about JuicyWay's webhook signature scheme has been found yet
 at all. Start at docs.juicyway.com, find their webhooks page, document
 what you find in the "Confirmed research findings" section above, then
 implement.
+
+**What was found / what changed:** Fetched
+docs.juicyway.com/webhooks.md directly (found via
+docs.juicyway.com/llms.txt's page index, since the bare `/webhooks`
+path wasn't independently fetchable). Full scheme write-up is in the
+"Confirmed research findings" section above — short version: no
+signature header (checksum is a body field), HMAC key is a "business
+ID" not the API secret, signed string is `event|alphabetically-sorted-
+JSON(data)`, digest is uppercase hex. Implemented
+`verifyWebhookSignature(payload)` on the `Juicyway` class in
+`providers/juicyway.js` (takes the whole parsed body, not a header,
+since the checksum lives inside it), plus a local `stableStringify()`
+helper in the same file to produce the required alphabetical-key JSON
+encoding. Added `this.businessId = process.env.JUICYWAY_BUSINESS_ID`
+in the constructor — **this is a new required env var not previously
+in this repo**; it is not the same as `JUICYWAY_API_KEY`/
+`JUICYWAY_PUBLIC_KEY` and needs to be set wherever this app is
+deployed for Juicyway webhook verification to work at all (currently
+unset, `verifyWebhookSignature` will reject everything until it's
+configured — flagging this plainly since it's a real deployment
+prerequisite, not just a code change). Wired it into the `juicyway`
+webhook handler in `routes.js`: same 401-on-invalid-checksum pattern
+as Paystack/Korapay. On either of the two documented event types
+(`payment.session.succeeded`/`payment.session.failed`), logs
+reference/amount/currency/status; anything else is logged generically
+(no persistence layer yet — Task 12). Updated the two stale routes.js
+comments (above `webhookHandlers` and above the `/api/webhooks/:provider`
+route) that still described Juicyway as an unverified stub. Left the
+existing `⚠️ Verify exact endpoint path in Juicyway docs` comment on
+`processPayment`'s `/v1/charges` call alone — that's a payment-init
+endpoint question, not a webhook one, out of scope for this task (now
+noted as a explicit future task in the findings section instead of
+being silently left dangling). Verified: `node --check routes.js` and
+`node --check providers/juicyway.js` both pass; a throwaway `node`
+script exercised valid/tampered/missing-checksum/wrong-business-id
+cases, sender key-order independence, and lowercase-checksum tolerance
+(all six correct) — deleted after use, not committed. Pushed as part
+of PR #2, **not yet merged by Phoenix-Boss** (see "Outstanding PRs
+status" above — check it's still current as of whichever session reads
+this next).
 
 ### Task 6 — Payscribe webhook: find the real scheme + implement [ ]
 **Check PENDING_DOCS above first.** If no link has been provided yet,
