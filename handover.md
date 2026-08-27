@@ -64,16 +64,22 @@ needs to be.
    project history) — always do it, it takes seconds.
 8. **Present the file** with the `present_files` tool so the human can
    see and download it.
-9. **Tell the human the exact command to run**, every time, verbatim:
+9. **Tell the human the exact commands to run**, every time, verbatim —
+   this now ends with opening a pull request, not a bare push (see
+   "Pull request workflow" section below for why and for the exact
+   command forms):
    ```
    git am ~/storage/downloads/NNNN-short-description.patch
    git push origin main
+   gh pr create --repo Phoenix-Boss/B-PAY-backend --base main --head Zapier-codes:main --title "type(scope): short description — Task N" --body "See commit message for details."
    ```
    (Termux's shared Downloads folder — confirmed earlier in this
    project as `~/storage/downloads`, lowercase, after
    `termux-setup-storage` has been run once. If a session ever gets a
    "no such file" report back, the first thing to check is exact
-   case/spelling of that path, not the patch itself.)
+   case/spelling of that path, not the patch itself. If `gh` isn't
+   installed/authenticated in Termux, give the browser-link fallback
+   from the PR workflow section instead of the `gh pr create` line.)
 10. **Check the box** for the task you just did in this file, add a
     short "what was found / what changed" note under it (same style as
     Task 3/Task 4 in the Mavins-web project's handover.md — that
@@ -81,6 +87,71 @@ needs to be.
     read), commit that edit to `handover.md` **as part of the same
     commit** as the code change (one commit, one patch, per session —
     don't split the code change and the checkbox update into two).
+
+---
+
+## Pull request workflow (fork → upstream) — read this before step 9 above
+
+**This repo is a fork.** Confirmed directly against GitHub (not
+assumed): `Zapier-codes/B-PAY-backend` is forked from, and its
+`network_root_nwo`/parent is, `Phoenix-Boss/B-PAY-backend`. That
+second repo is the **real owner's** repo — `Phoenix-Boss` — and only
+they can merge into it. This means every session's work reaches the
+real codebase in two hops, not one:
+
+1. The human applies the session's patch and pushes it to **our own
+   fork's `main`** (`origin`, i.e. `Zapier-codes/B-PAY-backend`) — this
+   part hasn't changed, it's step 9's `git am` + `git push origin main`.
+2. Pushing to our fork's `main` does **not** put the code in front of
+   Phoenix-Boss. A **pull request** from our fork's `main` into
+   `Phoenix-Boss/B-PAY-backend`'s `main` has to be opened separately,
+   every time, so the real owner reviews and merges it on their end.
+   Never tell the human the job is done after step 9's push alone —
+   the PR-open command is a required last line, not optional cleanup.
+
+This matches the precedent already on GitHub: the existing merge
+commit `900db65` ("Merge pull request #1 from Zapier-codes/main") on
+`Phoenix-Boss/B-PAY-backend` shows this exact fork→PR flow already
+happened once for the earlier commits. Keep using the same base/head
+branch names (`main` → `main`) unless a future session has a specific
+reason to use a feature branch instead.
+
+**The exact command to give the human, every session, from Termux,
+right after `git push origin main`:**
+
+```
+gh pr create --repo Phoenix-Boss/B-PAY-backend --base main --head Zapier-codes:main --title "type(scope): short description — Task N" --body "See commit message for details."
+```
+
+- Requires the GitHub CLI (`gh`) installed and authenticated in
+  Termux (`gh auth login`, one-time setup). If a session gets a report
+  back that `gh` isn't found or isn't authenticated, don't try to debug
+  Termux's package state remotely — just fall back to the browser-link
+  method below for that session and note in this file that `gh` still
+  needs setup on the human's device.
+- `--title`/`--body` should echo the same commit message the session
+  already wrote in step 5 — don't write a new one from scratch.
+
+**Fallback if `gh` isn't available (always works, no CLI needed):**
+Give the human this exact URL to open in a browser (works from
+Termux's browser or any device) — GitHub pre-fills a PR draft
+comparing the two `main` branches:
+```
+https://github.com/Phoenix-Boss/B-PAY-backend/compare/main...Zapier-codes:B-PAY-backend:main?expand=1
+```
+They just need to confirm the title/description (again, echo the
+commit message) and click "Create pull request."
+
+**Outstanding as of the session that wrote this note:** commit
+`7b12a94` ("docs(handover): create task queue for provider
+doc-scrutiny + cross-repo continuation") is on `origin/main` (our
+fork) but is confirmed **not yet merged upstream** — `upstream/main`'s
+latest is still `900db65` (the PR #1 merge, which only covers commits
+through `0616b8e`). This means a PR for `7b12a94` needs to be opened
+now, using the command above, before any further task work — check
+`git log --oneline upstream/main` vs `origin/main` at the start of the
+next session to confirm whether this has already happened; if it has,
+delete this paragraph.
 
 ---
 
