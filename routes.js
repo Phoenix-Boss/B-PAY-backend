@@ -149,6 +149,29 @@ function assertCurrencySupported(providerName, currency) {
   }
 }
 
+// Task 13 (error-handling review half): shared by every catch block
+// below. Two kinds of errors reach these catch blocks:
+// - Validation errors from the assert* functions above and ApiErrors
+//   from handleApiCall (utils/helpers.js) — both already carry a
+//   deliberately client-safe message (assert* messages are our own
+//   text describing bad input; handleApiCall now only lets a
+//   provider-flagged message through, see providerError() and its
+//   Task 13 comment in utils/helpers.js).
+// - Config/operational errors (missing API key, no base URL configured
+//   for a provider) tagged `isConfigError` by getProviderKey() /
+//   getProviderBaseUrl() in utils/helpers.js — these describe this
+//   server's own setup state, not anything about the request, and
+//   telling an external caller exactly which provider's credentials
+//   aren't configured is information this API has no reason to give
+//   out. Full detail is still in the log line right before each of
+//   these catch blocks' calls to this function.
+function clientSafeMessage(error, fallback) {
+  if (error.isConfigError) {
+    return 'Payment service is temporarily unavailable for this provider. Please try again shortly.';
+  }
+  return error.message || fallback;
+}
+
 const getProvider = (name) => {
   switch (name.toLowerCase()) {
     case 'paystack': return new Paystack();
@@ -374,10 +397,13 @@ router.post('/pay', async (req, res) => {
     // Respects error.statusCode when the error carries one (e.g. the
     // 400 from assertCurrencySupported above, Task 10) instead of
     // always answering 500 — same pattern already used by the
-    // /webhooks/:provider route below (Task 3).
+    // /webhooks/:provider route below (Task 3). Message goes through
+    // clientSafeMessage (Task 13) so a config/operational failure
+    // (missing key, no base URL for the resolved provider) doesn't
+    // echo its specifics back to the caller.
     return res.status(error.statusCode || 500).json({
       status: false,
-      message: error.message || 'Payment processing failed',
+      message: clientSafeMessage(error, 'Payment processing failed'),
     });
   }
 });
@@ -410,9 +436,16 @@ router.get('/verify', async (req, res) => {
 
   } catch (error) {
     log(`Verification Error: ${error.message}`, 'error');
-    return res.status(500).json({
+    // Task 13: found incidentally while reviewing error handling — this
+    // route always answered 500 regardless of error.statusCode, unlike
+    // POST /pay (fixed by Task 10) and POST /webhooks/:provider (Task 3).
+    // A bad provider name here (getProvider() throws a plain Error) or an
+    // ApiError from a failed verifyTransaction() call both now get their
+    // real status code instead of being flattened to 500. Message goes
+    // through the same clientSafeMessage() sanitization as POST /pay.
+    return res.status(error.statusCode || 500).json({
       status: false,
-      message: error.message || 'Verification failed',
+      message: clientSafeMessage(error, 'Verification failed'),
     });
   }
 });
@@ -443,7 +476,11 @@ router.post('/webhooks/:provider', async (req, res) => {
 
   } catch (error) {
     log(`Webhook Error: ${error.message}`, 'error');
-    return res.status(error.statusCode || 500).json({ status: false, message: error.message || 'Webhook processing failed' });
+    // Task 13: same clientSafeMessage() sanitization as POST /pay and
+    // GET /verify — each webhookHandlers entry instantiates a provider
+    // class (e.g. `new Paystack()`), which can throw the same
+    // isConfigError-tagged errors on a missing key.
+    return res.status(error.statusCode || 500).json({ status: false, message: clientSafeMessage(error, 'Webhook processing failed') });
   }
 });
 

@@ -1,6 +1,6 @@
 import fetch from 'node-fetch';
 import crypto from 'crypto';
-import { log, handleApiCall, getProviderKey, generateReference, formatPayload, getProviderBaseUrl } from '../utils/helpers.js';
+import { log, handleApiCall, getProviderKey, generateReference, formatPayload, getProviderBaseUrl, providerError } from '../utils/helpers.js';
 
 export class Juicyway {
   constructor() {
@@ -42,7 +42,10 @@ export class Juicyway {
       const responseData = await response.json();
 
       if (!response.ok) {
-        throw new Error(responseData.message || 'Juicyway payment failed');
+        // Task 13: same reasoning as paystack.js/korapay.js — this message
+        // comes straight from Juicyway's own JSON response body, meant for
+        // the end user, so mark it safe-to-surface.
+        throw providerError(responseData.message || 'Juicyway payment failed');
       }
 
       return responseData;
@@ -67,7 +70,7 @@ export class Juicyway {
       const responseData = await response.json();
 
       if (!response.ok) {
-        throw new Error(responseData.message || 'Juicyway verification failed');
+        throw providerError(responseData.message || 'Juicyway verification failed');
       }
 
       return responseData;

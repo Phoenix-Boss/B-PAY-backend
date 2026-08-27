@@ -59,6 +59,29 @@ export class ApiError extends Error {
   }
 }
 
+// Task 13 (error-handling review half — rate limiting deliberately
+// descoped this session, see handover.md's Task 13 note): each
+// provider's processPayment()/verifyTransaction() throws
+// `new Error(responseData.message || '...')` when the provider's own
+// API returns a failure — that message is provider-authored and
+// meant to be shown to the end user (e.g. "Insufficient funds",
+// "Invalid account number"). Wrap those specific throws with
+// providerError() instead of a bare `new Error(...)` to explicitly
+// mark them safe-to-surface. Anything thrown WITHOUT this flag (a
+// network failure inside fetch(), a JSON parse failure on a
+// non-JSON response, a missing API key, an unsupported provider
+// name, etc.) is an internal/operational failure whose raw message
+// was never meant for an external caller — handleApiCall below only
+// passes the flagged messages through verbatim; everything else gets
+// a generic client-facing message while the real detail still goes
+// to the server log line right above it (and to `originalError` on
+// the thrown ApiError, for anything logging that in future).
+export function providerError(message) {
+  const err = new Error(message);
+  err.isProviderMessage = true;
+  return err;
+}
+
 export async function handleApiCall(fn, provider = 'unknown') {
   try {
     log(`🔄 Starting API call for ${provider.toUpperCase()}...`, 'info');
@@ -68,7 +91,10 @@ export async function handleApiCall(fn, provider = 'unknown') {
   } catch (err) {
     const errorMessage = err.message || err.toString();
     log(`❌ API Call Error (${provider.toUpperCase()}): ${errorMessage}`, 'error');
-    throw new ApiError(provider, err.statusCode || 500, `API request failed: ${errorMessage}`, err);
+    const clientMessage = err.isProviderMessage
+      ? errorMessage
+      : `Unable to complete request with ${provider} right now. Please try again shortly.`;
+    throw new ApiError(provider, err.statusCode || 500, `API request failed: ${clientMessage}`, err);
   }
 }
 
@@ -101,7 +127,9 @@ export function getProviderKey(provider, type) {
   if (providerLower === 'juicyway') {
     const key = process.env.JUICYWAY_API_KEY || process.env.JUICYWAY_PUBLIC_KEY || '';
     if (!key) {
-      throw new Error(`API key not found for ${provider}. Check .env file.`);
+      const err = new Error(`API key not found for ${provider}. Check .env file.`);
+      err.isConfigError = true; // Task 13: server misconfiguration, not for the client — see routes.js
+      throw err;
     }
     if (key.length < 10) {
       log(`⚠️ Warning: ${provider} key seems too short`, 'warn');
@@ -134,7 +162,9 @@ export function getProviderKey(provider, type) {
   const key = providerKeys[type];
   
   if (!key) {
-    throw new Error(`API key not found for ${provider} (${type}). Check .env file.`);
+    const err = new Error(`API key not found for ${provider} (${type}). Check .env file.`);
+    err.isConfigError = true; // Task 13: server misconfiguration, not for the client — see routes.js
+    throw err;
   }
   
   if (key.length < 10) {
@@ -391,7 +421,9 @@ export function getProviderBaseUrl(provider) {
   const urls = urlMap[provider.toLowerCase()];
   
   if (!urls) {
-    throw new Error(`No base URL configured for provider: ${provider}`);
+    const err = new Error(`No base URL configured for provider: ${provider}`);
+    err.isConfigError = true; // Task 13: server misconfiguration, not for the client — see routes.js
+    throw err;
   }
   
   return urls[env] || urls.development;

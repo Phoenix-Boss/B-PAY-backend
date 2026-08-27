@@ -1,6 +1,6 @@
 import fetch from 'node-fetch';
 import crypto from 'crypto';
-import { log, handleApiCall, getProviderKey, generateReference, formatPayload, getProviderBaseUrl, convertAmountForProvider } from '../utils/helpers.js';
+import { log, handleApiCall, getProviderKey, generateReference, formatPayload, getProviderBaseUrl, convertAmountForProvider, providerError } from '../utils/helpers.js';
 
 export class Korapay {
   constructor() {
@@ -49,7 +49,7 @@ export class Korapay {
       const responseData = await response.json();
 
       if (!response.ok || !responseData.status) {
-        throw new Error(responseData.message || 'Korapay payment failed');
+        throw providerError(responseData.message || 'Korapay payment failed');
       }
 
       return responseData;
@@ -81,7 +81,7 @@ export class Korapay {
       const responseData = await response.json();
 
       if (!response.ok || !responseData.status) {
-        throw new Error(responseData.message || 'Korapay verification failed');
+        throw providerError(responseData.message || 'Korapay verification failed');
       }
 
       return responseData;

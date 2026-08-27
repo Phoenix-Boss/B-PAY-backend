@@ -1,6 +1,6 @@
 import fetch from 'node-fetch';
 import crypto from 'crypto';
-import { log, handleApiCall, getProviderKey, generateReference, formatPayload, getProviderBaseUrl, convertAmountForProvider } from '../utils/helpers.js';
+import { log, handleApiCall, getProviderKey, generateReference, formatPayload, getProviderBaseUrl, convertAmountForProvider, providerError } from '../utils/helpers.js';
 
 export class Paystack {
   constructor() {
@@ -38,7 +38,11 @@ export class Paystack {
       const responseData = await response.json();
 
       if (!response.ok || !responseData.status) {
-        throw new Error(responseData.message || 'Paystack initialization failed');
+        // Task 13: Paystack's own responseData.message is provider-authored
+        // and meant to be shown to the end user — mark it safe-to-surface so
+        // handleApiCall's sanitizer (utils/helpers.js) passes it through
+        // instead of replacing it with a generic message.
+        throw providerError(responseData.message || 'Paystack initialization failed');
       }
 
       return responseData;
@@ -66,7 +70,7 @@ export class Paystack {
       const responseData = await response.json();
 
       if (!response.ok || !responseData.status) {
-        throw new Error(responseData.message || 'Paystack verification failed');
+        throw providerError(responseData.message || 'Paystack verification failed');
       }
 
       return responseData;

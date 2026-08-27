@@ -1257,6 +1257,70 @@ provider's error handling for anything that might leak upstream
 details (API keys, internal codes, stack traces) into the client-facing
 error message, and sanitize where needed.
 
+**Partial progress this session (rate limiting explicitly descoped —
+project owner instruction, not a session decision — box stays
+unchecked, see below):** Did the error-handling-review half only.
+Read every provider file's `processPayment()`/`verifyTransaction()`
+plus `routes.js`'s three catch blocks (`POST /pay`, `GET /verify`,
+`POST /webhooks/:provider`) end to end. Found two distinct kinds of
+error messages currently reaching the client, previously handled
+identically:
+1. **Provider-authored, user-facing messages** — e.g. Paystack/Korapay/
+   Juicyway's `responseData.message`, Payscribe's `responseData.description`
+   (a "insufficient funds"/"invalid account" style string the provider
+   itself designed to be shown to an end user). Safe to pass through,
+   and the whole point of surfacing them.
+2. **Internal/operational messages** — network failures inside
+   `fetch()` (DNS errors, connection resets), JSON-parse failures on a
+   non-JSON response, and — the one worth calling out — `getProviderKey()`/
+   `getProviderBaseUrl()` in `utils/helpers.js` throwing "API key not
+   found for X" / "No base URL configured for X" when a provider isn't
+   configured on this deployment. That second one is a real, if minor,
+   information-disclosure gap: it was reaching the client verbatim,
+   telling any caller exactly which providers this server does or
+   doesn't have live credentials for — deployment/readiness state that
+   has no reason to be public. (Deliberately did NOT flag "Provider 'x'
+   not supported" / "Unsupported provider" messages the same way —
+   those just restate which provider names are valid, no more sensitive
+   than the API's own documented provider list.)
+Fixed by adding `providerError()` in `utils/helpers.js` (wraps a
+message and tags it `isProviderMessage = true`), used at all 7
+provider-response-failure throw sites across the four provider files
+in place of a bare `new Error(...)`. `handleApiCall()` (also in
+`utils/helpers.js`) now only passes a caught error's message through to
+the client verbatim when it carries that flag — anything else becomes
+a generic `Unable to complete request with <provider> right now...`,
+while the real message still goes to the server log line immediately
+above (unchanged). Separately, `getProviderKey()`/`getProviderBaseUrl()`
+now tag their throws `isConfigError = true`; added a shared
+`clientSafeMessage(error, fallback)` helper in `routes.js`, used by all
+three catch blocks, which swaps in a generic "Payment service is
+temporarily unavailable for this provider" message whenever that flag
+is present. Full detail is unaffected in every case — only the
+*client-facing* `message` field changes; server-side `log(...)` calls
+still get the real error text everywhere.
+**Incidental fix found while reviewing, included in the same commit:**
+`GET /verify`'s catch block always answered `500` regardless of
+`error.statusCode` — the same pre-existing bug pattern Task 10 already
+fixed for `POST /pay` (and `POST /webhooks/:provider` has respected it
+since Task 3), just never applied here. Now consistent across all
+three routes.
+Verified: `node --check` on all six touched files (`routes.js`,
+`utils/helpers.js`, all four provider files) — all pass. A throwaway
+`node -e`-style script (deleted after use) exercised `handleApiCall`
+with a `providerError()`-flagged throw (message passed through
+verbatim) and an unflagged `TypeError` (message replaced with the
+generic one), plus `clientSafeMessage()` against a tagged config error
+(sanitized) and an untagged validation error (passed through) — all
+four matched expectation.
+**Why the box stays unchecked:** rate limiting was explicitly descoped
+for this session per direct project owner instruction ("no need for
+rate limiting"), not skipped for a code reason — it's still real,
+unaddressed scope from this task's original description (no rate
+limiting exists anywhere in this repo). A future session should pick
+up just that half; the error-handling-review half above doesn't need
+to be redone.
+
 ### Task 14 — End-to-end manual test pass [ ]
 Using each provider's sandbox/test keys, exercise `/api/pay` and
 `/api/verify` (and by this point, the webhook handlers) for all four
@@ -1560,3 +1624,19 @@ session rule as this file.
   `git am` against `71a9a3b` (this session's own prior HEAD, i.e.
   `0007`–`0011` applied) in a fresh `/tmp` clone. Requires `0007`
   through `0011` applied first.
+- `0013-error-message-sanitization.patch` — Task 13 (error-handling-
+  review half only; rate limiting explicitly descoped this session per
+  project owner instruction — see the task's own note). Added
+  `providerError()` + the `isProviderMessage` flag and `isConfigError`
+  tagging in `utils/helpers.js`; used `providerError()` at all 7
+  provider-response-failure throw sites across `providers/paystack.js`,
+  `providers/korapay.js`, `providers/juicyway.js`, and
+  `providers/payscribe.js`; added `clientSafeMessage()` in `routes.js`,
+  used by all three catch blocks (`POST /pay`, `GET /verify`,
+  `POST /webhooks/:provider`) — the last of which also picked up an
+  incidental fix (now respects `error.statusCode` instead of always
+  answering 500, matching `POST /pay`/`POST /webhooks/:provider`).
+  Verified with `git am` against `de007f9` (this session's own prior
+  commit, i.e. `0012` applied) in a fresh `/tmp` clone, `node --check`
+  passing on all six touched files. Requires `0007` through `0012`
+  applied first.
