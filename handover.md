@@ -372,7 +372,7 @@ Verified with `node --check index.js` and `node --check routes.js`
 (both pass — this task only touched `render.yaml`, a config file with
 no syntax to check itself).
 
-### Task 2 — Add a webhook route skeleton [ ]
+### Task 2 — Add a webhook route skeleton [x]
 Add `POST /api/webhooks/:provider` to `routes.js`. For now this just
 needs to: log the raw body + headers, route to a (not-yet-implemented)
 per-provider handler stub that returns 200 immediately, and store
@@ -386,6 +386,25 @@ computed over the *raw* bytes (Paystack's docs explicitly say raw
 body), and flag that `express.json({ verify: (req, res, buf) => { req.rawBody = buf } })`
 or similar may be needed — but don't implement that yet, just leave
 the note for whichever task hits it first.
+
+**What was found / what changed:** Added `POST /api/webhooks/:provider`
+to `routes.js`, plus a `webhookHandlers` map with one stub per provider
+(paystack/korapay/juicyway/payscribe), each just logging
+`formatPayload(req.body)` and returning `{ received: true }` — no
+signature verification or storage anywhere yet, on purpose, so Tasks
+3–6 can each land independently. The route itself logs the full
+headers object and the sanitized body before dispatching, returns 404
+for an unrecognized `:provider` segment, and otherwise always
+responds 200 (nothing to reject on until a task adds real
+verification — once one does, an invalid signature should return 401
+instead of falling through to this 200, noted inline as a comment).
+Left the raw-body note as a comment above the handler map, per the
+task's own instruction, rather than wiring up
+`express.json({ verify })` now — that's for whichever of Tasks 3–6
+needs true raw bytes first (almost certainly Task 3, Paystack, per the
+findings section). Verified with `node --check routes.js` and
+`node --check index.js` (both pass; `index.js` wasn't touched but
+re-checked since it imports `routes.js`).
 
 ### Task 3 — Paystack webhook: signature verification + handling [ ]
 Confirm the HMAC-SHA512 / `x-paystack-signature` scheme directly
@@ -632,4 +651,8 @@ per this whole project's "one task per session" rule.
 
 ## Patches issued so far (keep this updated so numbering doesn't collide)
 
-*(none yet — this file was just created)*
+- `0001-webhook-route-skeleton.patch` — Task 2 (webhook routing
+  skeleton, `routes.js`). Verified to apply cleanly with `git am`
+  against `3811f7f` (Task 1's commit) and pass `node --check` on both
+  touched/importing files, in a fresh `/tmp` clone, before handing
+  off.

@@ -29,6 +29,46 @@ const getProvider = (name) => {
 };
 
 // ==================================================
+// 🔔 WEBHOOK HANDLER STUBS (routing skeleton only)
+// ==================================================
+// NOTE: none of these verify a signature yet — that's Tasks 3-6 in
+// handover.md, one provider each, so they can land independently
+// without fighting over this file. For now each stub just
+// acknowledges receipt so the provider doesn't retry-storm us while
+// real handling isn't implemented.
+//
+// ⚠️ express.json() (set up in index.js) parses the body and doesn't
+// keep the raw bytes around. Paystack's docs explicitly compute the
+// HMAC signature over the *raw* request body, so whichever task
+// implements Paystack verification first will likely need to switch
+// to something like:
+//   express.json({ verify: (req, res, buf) => { req.rawBody = buf; } })
+// so `req.rawBody` is available alongside the parsed `req.body`. Not
+// done here — this task is only the routing skeleton.
+const webhookHandlers = {
+  paystack: async (req) => {
+    log(`Paystack webhook stub received (no verification yet): ${formatPayload(req.body)}`);
+    // TODO (Task 3): verify x-paystack-signature (HMAC-SHA512 of raw body), then handle event
+    return { received: true };
+  },
+  korapay: async (req) => {
+    log(`Korapay webhook stub received (no verification yet): ${formatPayload(req.body)}`);
+    // TODO (Task 4): verify x-korapay-signature (HMAC-SHA256), then handle event
+    return { received: true };
+  },
+  juicyway: async (req) => {
+    log(`Juicyway webhook stub received (no verification yet): ${formatPayload(req.body)}`);
+    // TODO (Task 5): find + verify Juicyway's signature scheme, then handle event
+    return { received: true };
+  },
+  payscribe: async (req) => {
+    log(`Payscribe webhook stub received (no verification yet): ${formatPayload(req.body)}`);
+    // TODO (Task 6): find + verify Payscribe's signature scheme, then handle event
+    return { received: true };
+  },
+};
+
+// ==================================================
 // 🛣️ ROUTES
 // ==================================================
 
@@ -122,6 +162,40 @@ router.get('/verify', async (req, res) => {
       status: false,
       message: error.message || 'Verification failed',
     });
+  }
+});
+
+// POST /api/webhooks/:provider
+// Routing skeleton only (Task 2) — logs the raw body + headers, hands
+// off to the per-provider stub above, stores nothing yet, always
+// returns 200 so the provider doesn't treat this as a delivery
+// failure and retry-storm us while real handling isn't implemented.
+router.post('/webhooks/:provider', async (req, res) => {
+  const { provider } = req.params;
+
+  try {
+    log(`Webhook received for provider '${provider}'`);
+    log(`Webhook headers: ${JSON.stringify(req.headers, null, 2)}`);
+    log(`Webhook body: ${formatPayload(req.body)}`);
+
+    const handler = webhookHandlers[provider?.toLowerCase()];
+
+    if (!handler) {
+      log(`Webhook Error: unknown provider '${provider}'`, 'error');
+      return res.status(404).json({ status: false, message: `Unknown webhook provider: ${provider}` });
+    }
+
+    await handler(req);
+
+    // Always ack with 200 at this stage — no signature verification or
+    // real handling exists yet (see Tasks 3-6), so there's nothing to
+    // reject on. Once verification lands, an invalid signature should
+    // return 401 instead of falling through to this 200.
+    return res.status(200).json({ status: true, message: 'Webhook received' });
+
+  } catch (error) {
+    log(`Webhook Error: ${error.message}`, 'error');
+    return res.status(500).json({ status: false, message: error.message || 'Webhook processing failed' });
   }
 });
 
