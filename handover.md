@@ -20,15 +20,42 @@ needs to be.
 1. **Pull latest first.** `git status --short` and `git log --oneline -5`
    to see where the repo actually is. If there are local commits ahead
    of what you expect, that's fine — just don't redo work.
-2. **Read this whole file**, especially the "Confirmed research
+2. **Check whether the previous commit and PR actually landed, before
+   doing anything else.** Because of the two-hop fork→PR flow (see
+   "Pull request workflow" section below), a commit can be pushed to
+   `origin/main` (our fork) and *still* be sitting in an unmerged PR —
+   don't assume "it's on origin/main" means "the real owner has it."
+   Concretely:
+   ```
+   git remote add upstream https://github.com/Phoenix-Boss/B-PAY-backend.git 2>/dev/null
+   git fetch origin && git fetch upstream
+   git log --oneline origin/main -3
+   git log --oneline upstream/main -3
+   ```
+   - If `origin/main`'s latest commit isn't `upstream/main`'s latest
+     (or an ancestor of it) — the previous session's PR is **still
+     open, unmerged**. That's fine, it doesn't block starting a new
+     task (task work continues to layer on top of `origin/main`
+     regardless of upstream merge status), but note it plainly to the
+     human when you hand off this session's own patch, so they know
+     there may be more than one PR outstanding, not just the newest
+     one.
+   - If a human-provided update says a PR *was* merged, still verify
+     it here against `upstream/main` yourself rather than taking the
+     claim at face value — merges can be delayed, rejected, or land on
+     a different branch than expected.
+   - Either way, update the "Outstanding PRs" note near the end of the
+     "Pull request workflow" section below to reflect what you found,
+     so the next session doesn't have to re-derive it.
+3. **Read this whole file**, especially the "Confirmed research
    findings" section below — it exists so you don't have to re-derive
    facts a previous session already verified. Then find the **first
    unchecked `[ ]` task** in the queue, in order, and do only that one.
-3. **Do the task.** Read the actual current code before changing
+4. **Do the task.** Read the actual current code before changing
    anything — comments in this file describe what was true when
    written, but the previous session's own commit may have already
    changed things.
-4. **Verify before committing.** This repo has no test suite yet, so
+5. **Verify before committing.** This repo has no test suite yet, so
    at minimum run `node -e "import('./index.js')"` won't work without
    real env vars — instead use `node --check <file>` on every file you
    touched (pure syntax check, no env/network needed), e.g.:
@@ -40,7 +67,7 @@ needs to be.
    it succeeds. If you changed `utils/helpers.js` currency/amount
    logic, write a tiny throwaway `node -e "..."` snippet to sanity
    check the math by hand before committing (delete the snippet after).
-5. **Commit.**
+6. **Commit.**
    ```bash
    git add -A
    git commit -m "type(scope): short description — Task N"
@@ -49,7 +76,7 @@ needs to be.
    it this way, the same level of detail as the "Confirmed research
    findings" entries below — the next session (and the human) reads
    this instead of your reasoning trace.
-6. **Generate the patch.**
+7. **Generate the patch.**
    ```bash
    git format-patch -1 HEAD -o /mnt/user-data/outputs
    mv /mnt/user-data/outputs/0001-*.patch /mnt/user-data/outputs/NNNN-short-description.patch
@@ -57,14 +84,14 @@ needs to be.
    Use the next free 4-digit number (check what's already in
    `/mnt/user-data/outputs` and in this file's "Patches issued so far"
    log below so numbers don't collide across sessions).
-7. **Verify the patch actually applies** before handing it over —
+8. **Verify the patch actually applies** before handing it over —
    clone the repo fresh to `/tmp`, reset to the commit *before* yours,
    `git am` the patch, confirm it applies cleanly and `node --check`
    still passes. This has caught real mistakes before (see Mavins-web
    project history) — always do it, it takes seconds.
-8. **Present the file** with the `present_files` tool so the human can
+9. **Present the file** with the `present_files` tool so the human can
    see and download it.
-9. **Tell the human the exact commands to run**, every time, verbatim —
+10. **Tell the human the exact commands to run**, every time, verbatim —
    this now ends with opening a pull request, not a bare push (see
    "Pull request workflow" section below for why and for the exact
    command forms):
@@ -80,13 +107,23 @@ needs to be.
    case/spelling of that path, not the patch itself. If `gh` isn't
    installed/authenticated in Termux, give the browser-link fallback
    from the PR workflow section instead of the `gh pr create` line.)
-10. **Check the box** for the task you just did in this file, add a
-    short "what was found / what changed" note under it (same style as
-    Task 3/Task 4 in the Mavins-web project's handover.md — that
-    project is the reference example for how this whole process should
-    read), commit that edit to `handover.md` **as part of the same
-    commit** as the code change (one commit, one patch, per session —
-    don't split the code change and the checkbox update into two).
+11. **Check the box** for the task you just did in this file as soon
+    as the PR is confirmed **open** — do NOT wait for the owner
+    (Phoenix-Boss) to actually merge it. Opening the PR is this
+    project's definition of "done" for a task; merge timing is the
+    real owner's call, on their own schedule, and isn't something a
+    session should block on or keep re-checking. Add a short "what was
+    found / what changed" note under the task (same style as Task
+    3/Task 4 in the Mavins-web project's handover.md — that project is
+    the reference example for how this whole process should read),
+    and if you know the PR is still unmerged as of this session, say
+    so plainly in that note (e.g. "PR open, not yet merged by
+    Phoenix-Boss") rather than implying it landed upstream — that's
+    what step 2's "Outstanding PRs" check-in is for on the *next*
+    session, not a reason to leave this task's box unchecked now.
+    Commit that edit to `handover.md` **as part of the same commit**
+    as the code change (one commit, one patch, per session — don't
+    split the code change and the checkbox update into two).
 
 ---
 
@@ -142,16 +179,28 @@ https://github.com/Phoenix-Boss/B-PAY-backend/compare/main...Zapier-codes:B-PAY-
 They just need to confirm the title/description (again, echo the
 commit message) and click "Create pull request."
 
-**Outstanding as of the session that wrote this note:** commit
-`7b12a94` ("docs(handover): create task queue for provider
-doc-scrutiny + cross-repo continuation") is on `origin/main` (our
-fork) but is confirmed **not yet merged upstream** — `upstream/main`'s
-latest is still `900db65` (the PR #1 merge, which only covers commits
-through `0616b8e`). This means a PR for `7b12a94` needs to be opened
-now, using the command above, before any further task work — check
-`git log --oneline upstream/main` vs `origin/main` at the start of the
-next session to confirm whether this has already happened; if it has,
-delete this paragraph.
+**When to mark a task "done":** opening the PR is this project's
+finish line for a task — check the box in step 11 above as soon as the
+PR is confirmed open, don't hold a task open waiting for
+Phoenix-Boss to actually merge it. Merge timing is entirely the real
+owner's call, on their own schedule. "PR open, unmerged" is a normal,
+expected steady state for this repo, not something to chase or flag
+as blocking — the one exception is step 2 at the top of this file,
+where every session does a quick, no-drama check of merge status
+purely to keep this note accurate for whoever reads it next.
+
+**Outstanding PRs status (updated by whichever session last checked —
+see step 2 above):** As of the session that wrote this paragraph, a PR
+covering both `7b12a94` ("docs(handover): create task queue...") and
+`a4f991c` ("docs(handover): document fork→upstream PR workflow...")
+has been **opened** against `Phoenix-Boss/B-PAY-backend` and is
+**confirmed not yet merged** — `upstream/main`'s latest is still
+`900db65` (the PR #1 merge, covering commits only through `0616b8e`).
+Per the policy above, this does NOT block starting new task work; it's
+here only so the next session's step-2 check has a known prior state
+to compare against instead of starting from scratch. Update this
+paragraph (don't just append another one) once a session's step-2
+check finds `upstream/main` has moved past `900db65`.
 
 ---
 
