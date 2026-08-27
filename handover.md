@@ -884,20 +884,37 @@ session, to make.
 
 ### Task 9b — Pull the real currency list into `getAmountFormat` from Mavins-web [ ]
 Split off from Task 9 above (see its note) rather than left half-done
-in the same task. Depends on **Mavins-web's Task 18** (reconciling
-`TARGET_COUNTRIES` vs `COUNTRY_CURRENCY` into one real list) being done
-first — check that repo's own `handover.md` before starting this one;
-if Task 18 isn't done yet, this task isn't ready either, skip it same
-as any other blocked task. Once there's a single reconciled
-country/currency list on the Mavins-web side, replace the hardcoded
-`supported` arrays inside `getAmountFormat`'s Paystack/Korapay cases
-(and whichever of JuicyWay/Payscribe have confirmed rules by then, if
-any) in `utils/helpers.js` with values derived from — or at minimum
-cross-checked against — that real list, so this file stops hardcoding
-a currency list Mavins-web disagrees with. If a currency shows up on
-Mavins-web's list that a provider's own docs don't support, that's a
-real gap to flag back to the project owner, not something to silently
-paper over here.
+in the same task. Depends on **Mavins-web's currency-list
+reconciliation** (this file's own Task 18, under "Cross-repo
+continuation" below — confusingly *not* a task with that number inside
+Mavins-web's own `handover.md`, which has an unrelated Task 18; see
+that entry's "Status check" note for the correction) being done first —
+check that entry's current state before starting this one; if it isn't
+done yet, this task isn't ready either, skip it same as any other
+blocked task.
+
+**Checked this session — still blocked, box stays unchecked:** went to
+start this task, which meant checking on the reconciliation work it
+depends on first (per its own instruction above). Cloned Mavins-web and
+confirmed directly that the reconciliation has **not** happened —
+`TARGET_COUNTRIES` is now 25 entries (grown via Mavins-web's own Task
+23, a different task) but `COUNTRY_CURRENCY` is still the old 20-entry
+list, and the two now overlap on only 12 codes. Full detail moved to
+this file's Task 18 entry below (under "Cross-repo continuation") rather
+than duplicated here, including the finding that Task 18 was never
+actually added to Mavins-web's own task queue, so nothing is currently
+set up to pick it up. No code touched this session — this was a
+dependency check, not an implementation attempt, per the task's own
+"skip it same as any other blocked task" instruction. Once there's a
+single reconciled country/currency list on the Mavins-web side, replace
+the hardcoded `supported` arrays inside `getAmountFormat`'s Paystack/
+Korapay cases (and whichever of JuicyWay/Payscribe have confirmed rules
+by then, if any) in `utils/helpers.js` with values derived from — or at
+minimum cross-checked against — that real list, so this file stops
+hardcoding a currency list Mavins-web disagrees with. If a currency
+shows up on Mavins-web's list that a provider's own docs don't support,
+that's a real gap to flag back to the project owner, not something to
+silently paper over here.
 
 ### Task 10 — Currency/country/method-aware provider routing [ ]
 Replace `ROUTING_RULES`'s abstract `action` string with real routing:
@@ -1192,6 +1209,33 @@ both sides. This task may need its own follow-up in B-Pay-backend's
 `handover.md` if the two repos' currency lists don't line up once this
 is done — leave that note there if so.
 
+**Status check this session (from B-Pay-backend, while starting Task
+9b below) — this task has NOT been done, and this file's own note
+about it was stale/misleading:** cloned Mavins-web fresh and confirmed
+directly (not from memory) that `TARGET_COUNTRIES` grew from 14 to 25
+entries via *Mavins-web's own* Task 23 ("shuffle 8-of-25 countries by
+genre"), but that was a country-*targeting-pool* task, not a currency
+reconciliation task — it never touched `COUNTRY_CURRENCY`, which is
+still the original 20-entry list. Comparing the two lists directly as
+they stand now: only 12 country codes appear in both (NG, US, GB, GH,
+KE, ZA, CA, AU, IN, AE, BR, MX). `TARGET_COUNTRIES` has 13 codes
+`COUNTRY_CURRENCY` doesn't (FR, DE, JM, NL, CI, SN, TZ, UG, EG, ES, IT,
+SE, KR), and `COUNTRY_CURRENCY` has 9 codes not in `TARGET_COUNTRIES`
+at all (EU, PK, BD, ID, PH, MY, SG, SA, TR — these look like a leftover
+generic currency-conversion list, unrelated to campaign targeting). The
+two lists are further apart in absolute terms than when this task was
+first written (14-vs-20 has become 25-vs-20, with less overlap
+proportionally). **Also: this task, as written here in B-Pay-backend's
+`handover.md`, was never actually copied into Mavins-web's own
+`handover.md` as a task in that file's queue** — confirmed by grepping
+Mavins-web's `handover.md` for "TARGET_COUNTRIES"/"COUNTRY_CURRENCY"/
+"reconcile"; the only hits are Task 23 (unrelated scope, above) and
+nothing else. So there is currently no queued task anywhere that will
+pick this up. **Whoever next works Mavins-web should add this as a real
+task in that repo's own `handover.md`** (not just leave it living only
+here) before attempting it, per this whole project's cross-repo
+continuation pattern.
+
 ### Task 19 — Mavins-web: route currency + payment method by geo [ ]
 Use the existing `detectUserGeo` service (via ipapi.co, already present
 in this codebase per an earlier session) to determine the user's
@@ -1201,7 +1245,8 @@ check that file's current state, it may have grown since this note was
 written), route the checkout amount + currency + preferred method
 accordingly; for countries where none of the backend's providers has
 local rails, fall back to USD via whichever provider/channel supports
-USD. This depends on Task 18's reconciled currency list and on
+USD. This depends on Task 18's reconciled currency list (still not
+done as of this file's latest check — see that entry) and on
 B-Pay-backend's Task 10 (provider routing) being done first — check
 both before starting.
 
@@ -1339,3 +1384,14 @@ session rule as this file.
   with `git am` against `5582fdf` (this session's own prior commit,
   i.e. `0007` applied) in a fresh `/tmp` clone. Requires `0007` applied
   first — will not apply standalone against `2423c7c`.
+- `0009-task9b-dependency-check-mavins-web-task18-fix.patch` —
+  docs-only, not tied to a numbered code task: attempted Task 9b (next
+  unchecked task in queue order), found it's still blocked on
+  Mavins-web's currency-list reconciliation, and found this file's own
+  reference to that dependency ("Mavins-web's Task 18") was stale/
+  misleading — Mavins-web's *own* Task 18 is an unrelated task, and the
+  reconciliation was never actually added to that repo's own queue.
+  Corrected Task 9b, Task 18, and Task 19's cross-references
+  accordingly. Verified with `git am` against `bfb4905` (this session's
+  own prior commit, i.e. `0007`+`0008` applied) in a fresh `/tmp` clone.
+  Requires `0007` and `0008` applied first.
