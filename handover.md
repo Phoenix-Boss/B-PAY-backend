@@ -1429,7 +1429,7 @@ to another repo — leave a one-line pointer back here if a Mavins-web or
 Velune task turns out to depend on something not yet finished in this
 file.
 
-### Task 16 — Clone Mavins-web, diagnose the Korapay amount bug [ ]
+### Task 16 — Clone Mavins-web, diagnose the Korapay amount bug [x]
 Clone `github.com/Zapier-codes/Mavins-web`. The reported symptom: "the
 amount passed to Kora is not the correct amount." The most likely
 cause, worth checking first: Mavins-web's pricing math
@@ -1448,6 +1448,40 @@ mismatch turns out to be. This task is diagnosis + fix; if the root
 cause is more involved than a single unit-conversion bug, split further
 into its own follow-up task in Mavins-web's `handover.md` rather than
 trying to finish everything in one session.
+
+**What was found / what changed:** Hypothesis confirmed, plus an
+additional compounding bug the hypothesis didn't anticipate — full
+detail lives in **Mavins-web's own `handover.md`, Task 26** (per this
+file's own cross-repo continuation convention), not duplicated here.
+Short version: `fund-wallet/page.tsx` did have the guessed 100x
+unit-conversion bug, AND separately hardcoded `currency: 'NGN'` while
+the amount itself was actually always USD — so it wasn't just scaled
+wrong, it was tagged with the wrong currency too. Mid-session, the
+project owner corrected the initial fix attempt (which had removed the
+100x but kept NGN as the default): this app's real default/base
+currency is USD, not NGN, and no client-side currency conversion
+should happen at all — Korapay's own **Dynamic Currency Conversion
+(DCC)** (confirmed against
+developers.korapay.com/docs/dynamic-currency-conversion) is meant to
+handle showing a non-US payer their own local currency at checkout,
+driven by `payment_currency`/`settlement_currency` fields on the
+charge request, converted at Korapay's live rate on Korapay's side.
+**This repo's own code needed a companion change** to make that
+possible: `routes.js`'s `POST /pay` previously destructured a fixed
+field whitelist from `req.body` that silently dropped `payment_currency`/
+`settlement_currency` even if a caller sent them — added both to the
+destructure and to `paymentData`, and `providers/korapay.js` now
+attaches them to the Korapay API payload when both are present.
+Real, code-unverifiable prerequisite (documented in Mavins-web's Task
+26, repeated here since it affects this repo's own Korapay integration
+too): DCC requires the merchant's Korapay account to have Currency
+Conversion product access (Kora-granted) and a per-currency dashboard
+toggle enabled — neither can be confirmed or set from either repo's
+code, and DCC requests will fail on Korapay's side until both are done
+regardless of how correct this code is. Ties into this repo's own
+Task 14 (blocked on real sandbox keys) for actually exercising this
+end-to-end. Verified: `node --check routes.js` and `node --check
+providers/korapay.js` both pass.
 
 ### Task 17 — Mavins-web: skip fund-wallet/email step for already-authenticated users [ ]
 The guest-checkout flow (guest pays without an account → account

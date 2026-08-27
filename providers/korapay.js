@@ -31,6 +31,17 @@ export class Korapay {
       },
     };
 
+    // Dynamic Currency Conversion (DCC): only attached when the caller
+    // supplies both fields (Korapay requires both together, and both
+    // must be currencies Korapay itself supports). `currency` above
+    // stays what we're charging in; `payment_currency` is shown to the
+    // payer at checkout, `settlement_currency` is what we get paid out
+    // in. See https://developers.korapay.com/docs/dynamic-currency-conversion
+    if (data.payment_currency && data.settlement_currency) {
+      payload.payment_currency = data.payment_currency;
+      payload.settlement_currency = data.settlement_currency;
+    }
+
     log(`Korapay Payment Request: ${formatPayload(payload)}`);
 
     const result = await handleApiCall(async () => {

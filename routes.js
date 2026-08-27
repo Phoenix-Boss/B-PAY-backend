@@ -323,7 +323,7 @@ const webhookHandlers = {
 // POST /api/pay
 router.post('/pay', async (req, res) => {
   try {
-    const { action, provider, amount, customer, currency, reference } = req.body;
+    const { action, provider, amount, customer, currency, reference, payment_currency, settlement_currency } = req.body;
 
     log(`Payment Request Received: ${formatPayload(req.body)}`);
 
@@ -378,6 +378,15 @@ router.post('/pay', async (req, res) => {
       currency: resolvedCurrency,
       reference: ref,
       customer,
+      // Optional Dynamic Currency Conversion fields (Korapay-specific
+      // today -- see providers/korapay.js). `currency`/`amount` above
+      // stays the merchant's own accounting currency (what the caller
+      // actually owes); `payment_currency` is what the *payer* sees at
+      // checkout, `settlement_currency` is what the merchant is paid
+      // out in. Omit both to charge directly in `currency` with no
+      // conversion, which is still the default for every other provider.
+      payment_currency,
+      settlement_currency,
     };
 
     const result = await providerInstance.processPayment(paymentData);
