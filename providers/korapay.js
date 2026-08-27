@@ -11,17 +11,26 @@ export class Korapay {
   async processPayment(data) {
     const ref = data.reference || generateReference('korapay');
 
+    // Korapay's initialize-charge endpoint requires the payer's details
+    // nested under a `customer` object -- a flat top-level `email` field
+    // is rejected. See https://developers.korapay.com/docs/checkout-redirect
     const payload = {
       amount: data.amount,
-      email: data.customer?.email,
-      reference: ref,
       currency: data.currency,
+      reference: ref,
+      customer: {
+        email: data.customer?.email,
+        name: data.customer?.name,
+      },
     };
 
     log(`Korapay Payment Request: ${formatPayload(payload)}`);
 
     const result = await handleApiCall(async () => {
-      const response = await fetch(`${this.baseUrl}/transactions/charge`, {
+      // Real endpoint per Korapay's docs is
+      // {baseUrl}/api/v1/charges/initialize -- this was previously
+      // /transactions/charge, which doesn't exist on Korapay's API.
+      const response = await fetch(`${this.baseUrl}/api/v1/charges/initialize`, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${this.secretKey}`,
@@ -47,8 +56,12 @@ export class Korapay {
     log(`Korapay Verification Request for: ${reference}`);
 
     const result = await handleApiCall(async () => {
+      // Real endpoint per Korapay's docs is
+      // {baseUrl}/api/v1/charges/:reference (GET, path param) -- this
+      // was previously /transactions/verify?reference=, which doesn't
+      // exist on Korapay's API.
       const response = await fetch(
-        `${this.baseUrl}/transactions/verify?reference=${encodeURIComponent(reference)}`,
+        `${this.baseUrl}/api/v1/charges/${encodeURIComponent(reference)}`,
         {
           method: 'GET',
           headers: {
