@@ -196,6 +196,79 @@ export function sanitizePhone(phone) {
   return '***' + phone.slice(-4);
 }
 
+// ==================================================
+// 💱 PER-PROVIDER AMOUNT-UNIT HANDLING (Task 9, partial)
+// ==================================================
+// Replaces the old blanket toSubUnit()/fromSubUnit() call pattern
+// (single ×100 assumption applied to whichever provider happened to
+// call it) with a per-provider lookup, since amount-unit rules are NOT
+// the same across providers — see handover.md's "Confirmed research
+// findings" section for the primary-source evidence behind each case
+// below. This is a Korapay-focus partial pass on Task 9: only
+// Paystack and Korapay have confirmed rules right now. JuicyWay and
+// Payscribe are still unconfirmed (Payscribe is also blocked on docs;
+// see handover.md), so both throw here rather than silently guessing
+// a multiplier — a wrong guess would either overcharge/undercharge by
+// 100x or send garbage upstream, so "fail loud" is safer than "fail
+// silent" until those two get their own confirmation pass. The
+// currency-list-expansion half of Task 9 (pulling the real list from
+// Mavins-web) is NOT done here — see handover.md's Task 9 note for
+// why that's a separate, still-open piece of work.
+export function getAmountFormat(provider, currency) {
+  const providerLower = (provider || '').toLowerCase();
+  const currencyUpper = (currency || '').toUpperCase();
+
+  switch (providerLower) {
+    case 'paystack': {
+      // Confirmed: paystack.com/docs/api/ — "multiplying the base
+      // amount by 100" for all 5 supported currencies.
+      const supported = ['NGN', 'GHS', 'ZAR', 'KES', 'USD'];
+      if (!supported.includes(currencyUpper)) {
+        log(`⚠️ Paystack: currency ${currencyUpper} is not in the confirmed-supported list (${supported.join(', ')})`, 'warn');
+      }
+      return { unit: 'subunit', multiplier: 100 };
+    }
+
+    case 'korapay': {
+      // Confirmed directly (Task 7, 2026-08-27) against
+      // developers.korapay.com/docs/checkout-redirect — base currency
+      // unit, no multiplier. Currency list per
+      // developers.korapay.com/docs/accept-payments +
+      // /docs/payout-via-api.
+      const supported = ['NGN', 'GHS', 'KES', 'ZAR', 'USD', 'XAF', 'XOF', 'EGP', 'TZS'];
+      if (!supported.includes(currencyUpper)) {
+        log(`⚠️ Korapay: currency ${currencyUpper} is not in the confirmed-supported list (${supported.join(', ')})`, 'warn');
+      }
+      return { unit: 'base', multiplier: 1 };
+    }
+
+    case 'juicyway':
+    case 'payscribe':
+      // Not yet confirmed for either provider — see handover.md's
+      // "Confirmed research findings" section (Payscribe is also
+      // waiting on a docs link; JuicyWay's webhook scheme is
+      // confirmed but its amount-unit rule for processPayment was
+      // never separately checked). Throw instead of assuming ×100 or
+      // ×1 — a silent wrong guess here is a real-money bug, not a
+      // cosmetic one.
+      throw new Error(
+        `getAmountFormat: amount-unit rule for "${provider}" is not yet confirmed — see handover.md Task 9 note before adding one`
+      );
+
+    default:
+      throw new Error(`getAmountFormat: unsupported provider "${provider}"`);
+  }
+}
+
+// Convenience wrapper: converts a base-unit input amount into whatever
+// unit the given provider actually expects, using getAmountFormat's
+// per-provider rule. Provider files should call this instead of the
+// old toSubUnit() directly.
+export function convertAmountForProvider(amount, provider, currency) {
+  const { unit, multiplier } = getAmountFormat(provider, currency);
+  return unit === 'subunit' ? Math.round(amount * multiplier) : amount;
+}
+
 export function toSubUnit(amount, currency = 'NGN') {
   const subUnitMap = {
     NGN: 100,

@@ -1,6 +1,6 @@
 import fetch from 'node-fetch';
 import crypto from 'crypto';
-import { log, handleApiCall, getProviderKey, generateReference, formatPayload, getProviderBaseUrl } from '../utils/helpers.js';
+import { log, handleApiCall, getProviderKey, generateReference, formatPayload, getProviderBaseUrl, convertAmountForProvider } from '../utils/helpers.js';
 
 export class Korapay {
   constructor() {
@@ -11,12 +11,18 @@ export class Korapay {
 
   async processPayment(data) {
     const ref = data.reference || generateReference('korapay');
+    // Confirmed (Task 7) Korapay wants base currency units, not
+    // subunits — convertAmountForProvider is a confirmed no-op here,
+    // but routing through it (Task 9, partial) makes that rule
+    // explicit and enforced in code rather than only documented in a
+    // comment, and keeps this call site consistent with Paystack's.
+    const amount = convertAmountForProvider(data.amount, 'korapay', data.currency);
 
     // Korapay's initialize-charge endpoint requires the payer's details
     // nested under a `customer` object -- a flat top-level `email` field
     // is rejected. See https://developers.korapay.com/docs/checkout-redirect
     const payload = {
-      amount: data.amount,
+      amount,
       currency: data.currency,
       reference: ref,
       customer: {

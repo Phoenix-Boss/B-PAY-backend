@@ -1,6 +1,6 @@
 import fetch from 'node-fetch';
 import crypto from 'crypto';
-import { log, handleApiCall, getProviderKey, generateReference, formatPayload, getProviderBaseUrl, toSubUnit } from '../utils/helpers.js';
+import { log, handleApiCall, getProviderKey, generateReference, formatPayload, getProviderBaseUrl, convertAmountForProvider } from '../utils/helpers.js';
 
 export class Paystack {
   constructor() {
@@ -11,7 +11,10 @@ export class Paystack {
 
   async processPayment(data) {
     const ref = data.reference || generateReference('paystack');
-    const amountInKobo = toSubUnit(data.amount, data.currency);
+    // Was: toSubUnit(data.amount, data.currency) — now routed through
+    // the per-provider helper (Task 9, partial) so this call site
+    // doesn't have to know Paystack-specific unit rules itself.
+    const amountInKobo = convertAmountForProvider(data.amount, 'paystack', data.currency);
 
     const payload = {
       email: data.customer?.email,

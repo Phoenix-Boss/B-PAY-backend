@@ -751,6 +751,69 @@ need to happen on the Mavins-web side, not here — just don't invent a
 currency list here that doesn't correspond to something real on that
 side).
 
+**Partial progress this session (Korapay-only focus, box left
+unchecked — task split, see below):** Implemented the
+`getAmountFormat(provider, currency)` helper design exactly as this
+task describes, plus a `convertAmountForProvider(amount, provider,
+currency)` wrapper, both in `utils/helpers.js`. Filled in real rules
+for the two providers with confirmed research: **Paystack** (subunit,
+×100, 5-currency list — this was already confirmed pre-existing
+research, not new this session) and **Korapay** (base unit, no
+multiplier, 9-currency list — confirmed this session via Task 7).
+**JuicyWay and Payscribe intentionally throw** a clear "not yet
+confirmed" error instead of guessing a multiplier — per this project's
+"Current focus: Korapay only" note above, their amount-unit rules
+haven't been separately verified and we don't have working keys to
+test against even if we guessed right. Rewired `providers/paystack.js`
+(now calls `convertAmountForProvider` instead of the old direct
+`toSubUnit` call) and `providers/korapay.js` (now explicitly calls
+`convertAmountForProvider` too — a confirmed no-op, but it makes the
+Task 7 rule enforced in code, not just documented in a comment) —
+`providers/juicyway.js` and `providers/payscribe.js` were **not**
+touched, since routing their existing `data.amount` pass-through
+through the new helper would just throw for both of them right now,
+which would be a regression, not an improvement, until Task 6/8-style
+confirmation happens for each. Left the old `toSubUnit()`/
+`fromSubUnit()` functions in place (unused by any provider file now,
+but not deleted — a future session can remove them once nothing else
+might reasonably want the raw ×100 utility, or repurpose them inside
+`getAmountFormat`'s own subunit case). Verified: `node --check` on all
+three touched files, plus a throwaway sanity script (deleted after)
+exercising Paystack/Korapay conversion math, the JuicyWay/Payscribe/
+unknown-provider throw paths, and `getAmountFormat`'s return shape —
+all passed.
+**Why the box stays unchecked:** the currency-list-expansion half of
+this task (pulling the real list from Mavins-web) was **not**
+attempted — split out explicitly into the new **Task 9b** immediately
+below, per this project's own "split a task, don't half-finish it
+silently" rule. **A future session that reaches this unchecked box
+should skip straight to Task 9b rather than redoing the
+`getAmountFormat`/`convertAmountForProvider` work above** — that part
+is done. Task 9's own box should probably be considered done in spirit
+for the two providers we can currently test, but stays unchecked until
+either (a) JuicyWay/Payscribe get their own confirmed rules and the
+helper covers all four providers, or (b) the project owner decides the
+currency-list-expansion clause doesn't actually block calling it
+complete — that's a scope call for the project owner, not this
+session, to make.
+
+### Task 9b — Pull the real currency list into `getAmountFormat` from Mavins-web [ ]
+Split off from Task 9 above (see its note) rather than left half-done
+in the same task. Depends on **Mavins-web's Task 18** (reconciling
+`TARGET_COUNTRIES` vs `COUNTRY_CURRENCY` into one real list) being done
+first — check that repo's own `handover.md` before starting this one;
+if Task 18 isn't done yet, this task isn't ready either, skip it same
+as any other blocked task. Once there's a single reconciled
+country/currency list on the Mavins-web side, replace the hardcoded
+`supported` arrays inside `getAmountFormat`'s Paystack/Korapay cases
+(and whichever of JuicyWay/Payscribe have confirmed rules by then, if
+any) in `utils/helpers.js` with values derived from — or at minimum
+cross-checked against — that real list, so this file stops hardcoding
+a currency list Mavins-web disagrees with. If a currency shows up on
+Mavins-web's list that a provider's own docs don't support, that's a
+real gap to flag back to the project owner, not something to silently
+paper over here.
+
 ### Task 10 — Currency/country/method-aware provider routing [ ]
 Replace `ROUTING_RULES`'s abstract `action` string with real routing:
 given a currency (and ideally a country code, if the caller has one),
