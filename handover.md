@@ -614,12 +614,17 @@ the place to design that UI/wallet code, just to preserve the decision.
   `generateReference()`, so the true no-reference-supplied double-charge
   case above should mostly stop occurring once the edge function is
   built to match Decision 1 — see the new Task 23 below.
-- No rate limiting anywhere.
-- Provider error messages are passed back to the client close to
-  verbatim (`error.message || 'Payment processing failed'`) — worth
-  checking whether any provider ever includes anything sensitive
-  (account details, internal error codes) in error responses that
-  shouldn't reach the browser.
+- No rate limiting anywhere. **Still open** — Task 13's error-handling
+  pass (below) deliberately did not touch this; it needs its own
+  session.
+- ~~Provider error messages are passed back to the client close to
+  verbatim...~~ **Addressed by Task 13's error-handling-review half**:
+  provider-authored messages (meant for the end user) are now
+  explicitly flagged safe-to-pass-through via `providerError()`
+  (`utils/helpers.js` + all four provider files); everything else
+  (network failures, missing API keys/base URLs) gets a generic
+  client-facing message while the real detail stays in the server log.
+  See Task 13's own note for the full write-up.
 
 ---
 
@@ -928,6 +933,28 @@ confirmation pass, not expected to find much, but do it properly
 rather than skip it). Also confirm the response shape this repo
 assumes (`responseData.status`, `.data.authorization_url` etc. if used
 downstream) matches what Paystack actually returns.
+
+### Task 8b — Juicyway: verify the payment-initialization endpoint path [ ]
+**Added by Task 15's audit pass** (see that task's note) — `providers/juicyway.js`
+has carried an explicit `⚠️ Verify exact endpoint path in Juicyway docs`
+comment on its `/v1/charges` call since Task 5 (which was webhooks-only
+in scope), and the "Confirmed research findings" section has flagged
+this as unverified since then too — but nothing had actually turned it
+into a queued task until now, so it was sitting unresolved and
+untracked. Same shape of work as Task 7 (Korapay) and Task 8
+(Paystack): open docs.juicyway.com (via its `.md` suffix / `llms.txt`
+page index — see the JuicyWay findings section above for why the bare
+`/webhooks` path itself 404s, likely the same trick needed for the
+charges endpoint) and confirm the real payment-initialization path,
+required/optional fields, and response shape against the primary
+source, then fix `providers/juicyway.js` if `/v1/charges` turns out to
+be wrong (same class of fix Task 7 made for Korapay's paths).
+**On hold — see "Current focus: Korapay only" above**, same reasoning
+as Task 8: we're waiting on JuicyWay API keys regardless, so even a
+confirmed-correct path can't be exercised end-to-end yet. Doc research
+alone doesn't need a key, but per the current focus narrowing, skip
+this entirely for now rather than partially doing it — matches how
+Task 8 itself is being held.
 
 ### Task 9 — Expand currency/amount-unit handling per real provider capabilities [ ]
 Depends on Tasks 3–8 having established real per-provider currency
@@ -1330,7 +1357,7 @@ automated test suite (no test framework is set up in this repo yet;
 adding one is out of scope unless a future task specifically calls
 for it). Confirm `/health`'s provider-key check reflects reality.
 
-### Task 15 — Final audit pass before handoff to Mavins-web [ ]
+### Task 15 — Final audit pass before handoff to Mavins-web [x]
 Re-read all four provider files and `routes.js` end to end. Confirm
 every `⚠️` / TODO-style comment from the original code has either been
 resolved or turned into a tracked task above. Confirm the "Confirmed
@@ -1338,6 +1365,48 @@ research findings" section is fully up to date (no more "secondary
 source, not yet confirmed" caveats left for anything that got used in
 shipped code). This is the last B-PAY-backend-only task — Task 16
 onward switches repos.
+
+**What was found / what changed:** Grepped all four provider files,
+`routes.js`, `utils/helpers.js`, and `index.js` for `⚠️`/TODO/FIXME/XXX
+and for looser uncertainty language (confirm/verify/assume/guess/not
+sure), then read every hit in context rather than trusting the grep
+alone. Most hits were either legitimate runtime warning log lines (not
+TODOs) or already-resolved decisions with their reasoning documented
+inline (e.g. the Korapay-idempotent-reuse secondary-source correction
+from Task 12, already recorded as settled). Two real findings:
+1. **`routes.js`'s Payscribe `TODO (Task 6): find + verify Payscribe's
+   signature scheme...`** — already correctly tracked (Task 6, on hold
+   pending PENDING_DOCS). No action needed.
+2. **`providers/juicyway.js`'s `⚠️ Verify exact endpoint path in
+   Juicyway docs` comment** — genuinely unresolved AND untracked. It's
+   mentioned in the "Confirmed research findings" section (added by
+   Task 5, which was webhooks-only in scope) but no task in the queue
+   ever picked it up, unlike the equivalent gap for Korapay (closed by
+   Task 7) and Paystack (queued as Task 8). This is exactly the kind of
+   gap this task exists to catch. **Added Task 8b** above (same shape
+   as Task 7/8, marked on hold under "Current focus: Korapay only" for
+   the same reason Task 8 is) to close it — the comment itself is left
+   in place in the code as the pointer to that task, same as how
+   Task 6's Payscribe TODO comment still sits in `routes.js`.
+Also found the "Known issues" bullet about provider error messages
+reaching the client verbatim was now stale — Task 13's error-handling
+pass (this same session, immediately prior) had already addressed it.
+Updated that bullet to reflect what Task 13 actually did, and split
+"No rate limiting anywhere" out as its own still-open line (Task 13
+deliberately did not touch rate limiting — see that task's note).
+Confirmed the "Confirmed research findings" section itself has no
+remaining "secondary source, not yet confirmed" language attached to
+anything actually shipped in code — the only genuinely open item
+findings-side is the JuicyWay endpoint path above, now tracked as
+Task 8b.
+**Box checked because this task's own bar is "resolved or tracked",
+not "everything is finished":** the audit's job was to catch anything
+left dangling and make sure it has a home in the queue, which is now
+true for both TODO-style comments found. Task 8b itself remains open
+(on hold, same as Task 8) — that's expected follow-up work, not a
+reason to leave this audit task unchecked. A future session revisiting
+this audit should start by confirming Task 8b's status before
+re-scanning from scratch.
 
 ---
 
@@ -1640,3 +1709,16 @@ session rule as this file.
   commit, i.e. `0012` applied) in a fresh `/tmp` clone, `node --check`
   passing on all six touched files. Requires `0007` through `0012`
   applied first.
+- `0014-task15-audit-pass.patch` — docs-only, Task 15 (final audit
+  pass). Found `providers/juicyway.js`'s endpoint-path `⚠️` comment was
+  genuinely unresolved and had never been turned into a queued task
+  (unlike the equivalent Korapay/Paystack gaps, closed by Task 7 /
+  tracked as Task 8) — added Task 8b to close that gap, on hold under
+  "Current focus: Korapay only" same as Task 8. Also refreshed the
+  "Known issues" bullet about provider error messages, which had gone
+  stale now that Task 13 (this same session, immediately prior)
+  addressed it. Checked Task 15's own box — its bar is "resolved or
+  tracked," which is now true for both TODO-style comments found; the
+  new Task 8b remains separately open. Verified with `git am` against
+  `2eeb4e3` (this session's own prior commit, i.e. `0013` applied) in a
+  fresh `/tmp` clone. Requires `0007` through `0013` applied first.
