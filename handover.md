@@ -239,16 +239,34 @@ something has changed — new commits added, or (eventually) merged.
 
 **Korapay**
 - Charges/initialize endpoint (`POST /api/v1/charges/initialize`) —
-  amount appears to be in the **base currency unit**, NOT subunits.
-  Evidence: official docs' Elixir client example shows
-  `"amount" => "1000.00"` (a decimal string) for a charge status
-  lookup, and a payout response shows `"amount": "100.00"` — kobo
-  values wouldn't have a meaningful decimal part. This is **strong
-  but secondary-source evidence, not a direct quote from the
-  charges/initialize reference page itself** — the session that owns
-  the Korapay task should open developers.korapay.com/docs and confirm
-  directly before treating this as settled, then update this note to
-  say "confirmed directly" once done.
+  amount is in the **base currency unit**, NOT subunits. **Confirmed
+  directly** (Task 7, 2026-08-27) against
+  developers.korapay.com/docs/checkout-redirect, the guide that walks
+  through this exact endpoint. That page's own parameter table lists
+  `amount` as type `Integer` with no subunit/multiplier instruction
+  anywhere on the page (contrast with Paystack, whose docs explicitly
+  say "multiply the base amount by 100" — Korapay's page has no
+  equivalent sentence, which is itself informative). Corroborating,
+  consistent evidence across every other primary-source example found
+  this session: the Checkout Standard widget doc's own JS examples use
+  `amount: 22000` and `amount: 3000` for NGN test charges — sensible as
+  ₦22,000/₦3,000, nonsensically small as kobo (₦220/₦30); the official
+  Elixir client (`hexdocs.pm/kora_pay`) shows
+  `KoraPay.create_charge(1000, "NGN", ...)` returning
+  `"amount" => "1000.00"` — the two-decimal-place formatting on the
+  *output* is a strong tell that `1000` on the *input* was already
+  naira, not kobo; and the checkout-redirect webhook payload example
+  itself shows `"amount": 100000, "fee": 1075` for an NGN transaction —
+  a ~1.075% fee is a realistic real-world card/transfer fee rate at
+  either scale, so it doesn't independently disambiguate, but it's
+  consistent with (not contradicted by) the base-unit reading. No
+  primary-source example anywhere multiplies a naira amount by 100
+  before sending it. This repo's `providers/korapay.js` already passes
+  `data.amount` straight through with no conversion (see
+  `processPayment`) — **confirmed correct as-is, no code change
+  needed** for this task. `toSubUnit()` should continue to NOT be
+  applied to Korapay payloads (matches the pre-existing "Known issues"
+  note above, now confirmed rather than assumed).
 - Supported currencies (payout/collection, varies by product): NGN,
   GHS, KES, ZAR, USD, XAF, XOF, EGP, TZS. Payment method availability
   is country-specific — mobile money for KE/GH/CM/CI/EG/TZ, bank
@@ -390,9 +408,9 @@ something has changed — new commits added, or (eventually) merged.
   for all of them, and default anything unrecognized to ×100 too. This
   is only correct for Paystack. It is not applied to Korapay, JuicyWay,
   or Payscribe payloads at all currently (their `processPayment`
-  methods pass `data.amount` straight through) — which is *probably*
-  correct for Korapay per the findings above, but has not been verified
-  one way or the other for JuicyWay or Payscribe.
+  methods pass `data.amount` straight through) — **confirmed correct
+  for Korapay** as of Task 7 (base currency units, not subunits), but
+  still not verified one way or the other for JuicyWay or Payscribe.
 - No request body validation on `POST /pay` beyond checking `amount`
   is truthy — no type check, no positivity check, no currency format
   check, no customer-object shape check.
@@ -411,11 +429,43 @@ something has changed — new commits added, or (eventually) merged.
 
 ---
 
+## Current focus: Korapay only (as of 2026-08-27)
+
+**Project owner direction: narrow scope to Korapay for now.** We are
+still waiting on API keys from Paystack, JuicyWay, and Payscribe, so
+there is no way to test or verify anything beyond what's already
+committed for those three providers. Until those keys arrive:
+
+- **Do** keep working the queue for any task that is Korapay-specific
+  (currently: Task 7).
+- **Don't** start Task 6 (Payscribe — already blocked on docs anyway),
+  Task 8 (Paystack endpoint verification), or the Paystack/JuicyWay/
+  Payscribe portions of any multi-provider task (9, 10, 11, 12, 13) —
+  leave their checkboxes unchecked and skip over them.
+- Multi-provider tasks (9, 10, 11, 12, 13) that don't strictly require
+  the other three providers' credentials may still get a **Korapay-only
+  partial pass** if a session finds a clean way to scope the work that
+  way (e.g. Task 9's `getAmountFormat(provider, currency)` shape could
+  be designed generically and filled in for Korapay alone, leaving the
+  other three providers' entries as explicit TODOs rather than guesses)
+  — but don't force it if the task doesn't split cleanly; when in
+  doubt, skip and leave a one-line note here instead of half-finishing
+  a task that needs all four providers to make sense.
+- This is a temporary narrowing, not a permanent re-scoping of the
+  project — once API keys for the other providers arrive, remove this
+  section (or mark it resolved) and resume the full queue in order,
+  starting from whatever's still unchecked.
+
+---
+
 ## Task queue
 
-Do the first unchecked task, in order. Do not skip ahead unless a task
-explicitly says its prerequisite isn't ready (e.g. Payscribe waiting on
-docs).
+Do the first unchecked task, in order, **except while the "Current
+focus: Korapay only" section above is active — then do the first
+unchecked Korapay-specific task instead**, skipping non-Korapay tasks
+that need credentials we don't have yet. Do not skip ahead for any
+other reason unless a task explicitly says its prerequisite isn't ready
+(e.g. Payscribe waiting on docs).
 
 ### Task 1 — Fix or diagnose the Render build mismatch [x]
 `render.yaml` builds with `npm run build` and starts `node
@@ -623,16 +673,19 @@ status" above — check it's still current as of whichever session reads
 this next).
 
 ### Task 6 — Payscribe webhook: find the real scheme + implement [ ]
-**Check PENDING_DOCS above first.** If no link has been provided yet,
-skip this task (leave it unchecked) and move to the next one — don't
-guess Payscribe's webhook scheme from general assumptions. If the link
-is there, this is also the task that should replace
-`Payscribe.verifyTransaction()`'s current behavior (it just throws
-"requires Webhook or Bank Session ID" today) — once webhooks are
-stored, `/api/verify` for Payscribe should look up the stored result
-instead of always throwing.
+**On hold — see "Current focus: Korapay only" above.** Doubly blocked
+right now: still no PENDING_DOCS link, *and* we're waiting on API keys
+from Payscribe regardless, so there'd be nothing to test against even
+with docs in hand. **Check PENDING_DOCS above first** once the focus
+narrowing is lifted. If no link has been provided yet, skip this task
+(leave it unchecked) and move to the next one — don't guess Payscribe's
+webhook scheme from general assumptions. If the link is there, this is
+also the task that should replace `Payscribe.verifyTransaction()`'s
+current behavior (it just throws "requires Webhook or Bank Session ID"
+today) — once webhooks are stored, `/api/verify` for Payscribe should
+look up the stored result instead of always throwing.
 
-### Task 7 — Korapay: confirm the amount-unit question directly [ ]
+### Task 7 — Korapay: confirm the amount-unit question directly [x]
 The findings section above has secondary evidence (decimal amounts in
 docs examples) suggesting Korapay's `charges/initialize` wants base
 units, not subunits — but this hasn't been confirmed against the exact
@@ -644,7 +697,36 @@ subunits ARE required, fix `providers/korapay.js` to call
 `toSubUnit()` (after also fixing Task 9 below, since the current
 `toSubUnit()` map doesn't cover Korapay's full currency list).
 
+**What was found / what changed:** Fetched
+developers.korapay.com/docs/checkout-redirect directly — this is the
+guide that documents the `charges/initialize` endpoint end to end,
+including its full parameter table. The `amount` parameter is typed
+`Integer` with no subunit/multiplier instruction anywhere on the page,
+unlike Paystack's docs which explicitly say to multiply by 100.
+Cross-checked against three more primary/near-primary sources (Checkout
+Standard widget's `amount: 22000`/`amount: 3000` NGN examples, the
+official Elixir client's `"amount" => "1000.00"` decimal-formatted
+output, and the checkout-redirect page's own webhook payload example)
+— all consistent with base currency units, none suggesting kobo. Base
+units is now **confirmed directly**, not secondary-source inference.
+No code change was needed: `providers/korapay.js#processPayment`
+already forwards `data.amount` unconverted, which is the correct
+behavior. Updated the "Confirmed research findings" Korapay section
+above with full source detail so a future session doesn't need to
+re-derive this. Verified with `node --check providers/korapay.js` (no
+code touched, but re-checked since the task could have required a
+change). Per the "Current focus: Korapay only" note above, this was
+the one task worked this session — no other provider's task was
+started.
+
 ### Task 8 — Paystack: verify endpoint paths + response shape against docs [ ]
+**On hold — see "Current focus: Korapay only" above.** We're waiting
+on API keys from Paystack, so even a confirmed-correct endpoint/shape
+can't actually be exercised end-to-end right now; revisit once keys
+arrive. (Doc research alone doesn't need a key, so a future session
+could still do the read-only confirmation half if useful — but per the
+current focus narrowing, skip this task entirely for now rather than
+partially doing it.)
 Confirm `/transaction/initialize` and `/transaction/verify/:reference`
 are exactly right (they were already believed correct going in, unlike
 Korapay's paths which needed real fixes in a prior session — this is a
