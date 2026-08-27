@@ -15,6 +15,95 @@ needs to be.
 
 ---
 
+## This is a 3-repo project — read this before "How every session works" below
+
+This project spans **three separate GitHub repos**, each worked with
+this exact same session-handover pattern, but each with **its own**
+`handover.md`, its own task queue, and its own "Patches issued so far"
+log — there is no single shared file. What ties the three together is
+that any one repo's queue can contain a task whose real subject is a
+*different* repo (always named explicitly in the task title, e.g.
+"Task 17 — Mavins-web: skip fund-wallet/email step..." inside this
+file). See "Sibling repos" below for the current list and each one's
+push mechanics — they are NOT all identical (this repo uses a
+fork→PR flow; confirm each other repo's own mechanics from its own
+`handover.md` rather than assuming they match this one).
+
+**The rule that changes your commands:** a task's code changes,
+commits, patches, `git am`, and `git push` always happen in the repo
+the task is actually *about* — never in whichever repo you currently
+have cloned just because that's where you started reading. Concretely,
+if you're working this file's queue and the first unchecked task in
+order turns out to be a "Mavins-web: ..." or "Velune: ..." task:
+
+1. **Stop making changes here.** Don't touch this repo's own source
+   files for that task.
+2. Clone (or `cd` into, if it's already cloned this session) the
+   target repo — see its URL in "Sibling repos" below.
+3. **Read that repo's own `handover.md` in full before doing anything
+   else.** What's written about it here is a pointer/synopsis for
+   continuity, not the source of truth — that repo's own file may have
+   grown, split the task differently, or already have it done. Follow
+   *that* file's own "How every session works" (or equivalent)
+   section, since a different repo may have different steps (compare:
+   this repo's fork→PR flow vs. Mavins-web's direct-push-no-PR flow,
+   confirmed different as of this note).
+4. Do the task, commit, format-patch, and verify **inside that repo's
+   own working directory** (and its own fresh `/tmp` clone for the
+   `git am` verification step) — not this one.
+5. **The hand-off you give the human must say explicitly which local
+   folder to be in**, since they're very likely still sitting in
+   whichever repo's folder they last used. Template:
+   ```
+   cd ~/<other-repo-folder>          # NOT this repo's folder
+   git am ~/storage/downloads/NNNN-....patch
+   git push origin main              # only if that repo pushes directly —
+                                      # check its own handover.md first
+   ```
+6. Update **that repo's own** `handover.md` task queue and "Patches
+   issued so far" log — not this file's — as part of the same commit,
+   per that repo's own process.
+7. If it makes sense for continuity, leave a short one-line pointer
+   back in *this* file's own task entry noting what was found/done in
+   the other repo (this file already does this in a few places — see
+   "Cross-repo continuation" further down) — but the actual work
+   record lives in the other repo's own file, not duplicated here.
+
+**A session that's only told "clone repo X" should not assume the
+whole queue lives inside repo X.** Read repo X's `handover.md` fully
+first; if its first unchecked task is a cross-repo pointer, follow it
+into the other repo per the steps above and treat this as one
+continuous session working across two repos, rather than stopping and
+asking the human to re-invoke you on the other repo. The "Sibling
+repos" block immediately below exists specifically so a session that
+starts in any one of the three repos can discover the other two exist
+and jump on its own.
+
+### Sibling repos (keep this block, or an equivalent, consistent across all three repos' own `handover.md` files)
+- **`B-Pay-backend`** (this repo) —
+  `https://github.com/Zapier-codes/B-Pay-backend` — fork of
+  `https://github.com/Phoenix-Boss/B-PAY-backend`; changes go through
+  the fork→PR flow described in "Pull request workflow" below (commit
+  → patch → human `git am` + `git push origin main` → auto-joins the
+  one open PR against upstream).
+- **`Mavins-web`** — `https://github.com/Zapier-codes/Mavins-web` —
+  confirmed **not** a fork (checked directly via the GitHub API this
+  session: `fork: false`, no parent repo) — that repo's own
+  `handover.md` has the human run `git am` and, per its own
+  instructions, apply directly with no PR step described there. Don't
+  assume this repo's fork→PR mechanics apply there; if a future session
+  finds that's changed, update this bullet and Mavins-web's matching
+  bullet about this repo to match.
+- **`Velune`** — `https://github.com/Zapier-codes/Velune` — no
+  `handover.md` exists there yet as of this note. This repo's own Task
+  22 (see "Cross-repo continuation" below) is an investigation-only
+  task whose job is to create Velune's first `handover.md` — whoever
+  does that should copy this same "Sibling repos" block (with Velune's
+  own push mechanics filled in once known) into the new file, so a
+  session that starts in Velune can find its way back to the other two.
+
+---
+
 ## How every session works
 
 1. **Pull latest first.** `git status --short` and `git log --oneline -5`
@@ -98,7 +187,12 @@ needs to be.
    already open and reused for every session from here on; do not
    have the human run `gh pr create` again, it will just fail with
    "a pull request ... already exists" since one already covers this
-   exact branch pair):
+   exact branch pair). **This step's exact form assumes the task was
+   B-Pay-backend's own — if the task actually belonged to Mavins-web or
+   Velune, use that other repo's own hand-off form instead (its own
+   `cd`, its own push mechanics, possibly no PR step at all — see "This
+   is a 3-repo project" near the top of this file), not this one
+   verbatim:**
    ```
    git am ~/storage/downloads/NNNN-short-description.patch
    git push origin main
@@ -1152,17 +1246,21 @@ onward switches repos.
 ## Cross-repo continuation
 
 **Important — all three repos in this project (B-Pay-backend,
-Mavins-web, and Velune) each have their own `handover.md`.** When a
-task below says to clone a different repo, that session's job is to:
-(a) do the specific fix described, AND (b) update *that other repo's*
-`handover.md` with what was done and what's left — so the next session
-picks up the thread there, in that repo, using that repo's own patch
-numbering and its own `git am` instructions (same process as this
-file describes, just localized to that repo's clone path). Don't let
-context about a still-open B-Pay-backend task get lost just because
-work moved to another repo — leave a one-line pointer back here if a
-Mavins-web or Velune task turns out to depend on something not yet
-finished in this file.
+Mavins-web, and Velune) each have their own `handover.md`.** See "This
+is a 3-repo project" near the top of this file for the full mechanics
+(which commands change, how the hand-off to the human differs per
+repo, the "Sibling repos" list with each repo's URL and push
+mechanics) — summary: when a task below says to clone a different
+repo, that session's job is to: (a) do the specific fix described,
+fully inside that other repo's own clone (own commits, own patches,
+own `git am`/push form — not this repo's), AND (b) update *that other
+repo's* `handover.md` with what was done and what's left — so the next
+session picks up the thread there, in that repo, using that repo's own
+patch numbering and its own hand-off instructions. Don't let context
+about a still-open B-Pay-backend task get lost just because work moved
+to another repo — leave a one-line pointer back here if a Mavins-web or
+Velune task turns out to depend on something not yet finished in this
+file.
 
 ### Task 16 — Clone Mavins-web, diagnose the Korapay amount bug [ ]
 Clone `github.com/Zapier-codes/Mavins-web`. The reported symptom: "the
@@ -1395,3 +1493,15 @@ session rule as this file.
   accordingly. Verified with `git am` against `bfb4905` (this session's
   own prior commit, i.e. `0007`+`0008` applied) in a fresh `/tmp` clone.
   Requires `0007` and `0008` applied first.
+- `0010-three-repo-navigation-sibling-repos.patch` — docs-only, not
+  tied to a numbered code task: added the "This is a 3-repo project"
+  section near the top of this file plus a "Sibling repos" block,
+  documenting the exact command/hand-off changes needed when a task's
+  real subject is Mavins-web or Velune rather than this repo. Confirmed
+  via GitHub API that Mavins-web is not a fork (unlike this repo), so
+  it doesn't share this repo's fork→PR mechanics. Cross-linked from
+  step 10 and from "Cross-repo continuation". Verified with `git am`
+  against `a08fe58` (this session's own prior commit, i.e.
+  `0007`+`0008`+`0009` applied) in a fresh `/tmp` clone. Requires
+  `0007`, `0008`, and `0009` applied first.
+
