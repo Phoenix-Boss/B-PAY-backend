@@ -424,12 +424,28 @@ added, or (eventually) merged.
   see that task's note for what's actually validated now
   (amount/currency format/customer.email where the resolved provider
   requires it).
-- No idempotency protection — `generateReference()` always mints a
-  fresh reference, so a client retry (e.g. a double-tap on mobile) can
-  create two separate charges for what the user experienced as one
-  action. Each provider's own reference-based idempotency only
-  protects against *sending the exact same reference twice*, which
-  this backend never does.
+- No idempotency protection when the client doesn't supply their own
+  `reference` — `generateReference()` mints a fresh one on every call
+  in that case, so a client retry (e.g. a double-tap on mobile, with
+  no client-side reference of its own) can still create two separate
+  charges for what the user experienced as one action. **Task 12
+  narrowed this down further and needs a project-owner decision, not
+  more guessing:** when a client DOES supply their own `reference`,
+  this backend now validates its format (Task 12) and forwards it
+  as-is — Paystack and (per its docs' wording, though not fully
+  confirmed the same way) Korapay will reject a second request reusing
+  that same reference rather than silently double-charging, so true
+  request-level idempotency already exists **for callers who supply
+  their own reference**. What's still missing, and needs a decision:
+  (a) should this backend itself persist "we've seen reference X"
+  (needs a real store — even a lightweight one, SQLite/JSON file — this
+  repo has none today), or (b) is that responsibility better placed on
+  the Mavins-web/Supabase side (which already has a database), with
+  this backend staying storage-free and just accepting/forwarding
+  whatever reference the caller gives it? Task 12 deliberately did NOT
+  pick one — building a database layer here without that decision
+  would be exactly the kind of bigger architecture change the task
+  description warned against guessing at.
 - No rate limiting anywhere.
 - Provider error messages are passed back to the client close to
   verbatim (`error.message || 'Payment processing failed'`) — worth
@@ -962,6 +978,64 @@ where providers support one) and leave a clear note in this file
 under "Known issues" recommending the human decide the storage
 question, rather than guessing at a bigger architecture change.
 
+**What was found / what changed:** Did the smaller, in-scope half only,
+per the task's own instruction — the storage decision (own DB here vs.
+Mavins-web/Supabase side vs. accept-and-forward-only) is a real
+architecture call for the project owner, not something to guess at, so
+it's left open below rather than acted on. What this session confirmed
+and built: `POST /pay` already destructured a client-supplied
+`reference` from the request body and forwarded it as-is
+(`ref = reference || generateReference(providerName)`) — so
+accept-and-forward already existed structurally before this task; what
+it was missing was any validation of that client-supplied value before
+forwarding it. Added `assertValidReferenceFormat(providerName,
+reference)` to `routes.js`: if the client omits `reference` entirely,
+this is a no-op (the existing `generateReference()` fallback already
+produces something safe). If they supply one, it must be a non-empty
+string, and — for Paystack specifically — must match the character set
+its own docs require (confirmed directly against
+paystack.com/docs/api/errors/transaction/: "Only -,.,= and
+alphanumeric characters are allowed"); a client-supplied reference with
+e.g. a `#` or space in it now gets a clear 400 naming the bad character
+instead of reaching Paystack and failing there with its own less
+specific error. Korapay's own primary docs
+(developers.korapay.com/docs/checkout-redirect) only state the
+reference "Must be unique for every transaction" — no character
+restriction — so no charset check is applied for Korapay beyond
+non-empty-string; JuicyWay/Payscribe: same (no format research done
+this session, out of the current Korapay-focus scope).
+**Important correction to a claim NOT in this file before:** while
+researching this, a secondary source (a third-party "skills" listing
+aggregating Korapay's API, not developers.korapay.com itself) claimed
+Korapay's reference is "idempotent" in the strong sense — that
+resending the same reference "returns the original charge" (a cached
+result, no error). This was checked directly against Korapay's own
+primary docs this session and is **NOT confirmed there** — the
+primary source only states the *uniqueness requirement*, worded
+almost identically to Paystack's (which is documented, also via a
+primary source, to reject a reused reference outright with a
+"Duplicate Transaction Reference" error, not return a cached result).
+Recording this here so a future session doesn't accidentally treat
+the unconfirmed secondary claim as fact: **the safer, primary-source-
+backed assumption is that both Paystack and Korapay reject a reused
+reference as an error**, not that either silently returns a cached
+prior result. If a future task actually needs true idempotent-replay
+semantics (client retries the exact same request and gets the exact
+same response back, no error), that requires the storage layer this
+task explicitly declined to build — see the "Known issues" note below.
+Verified: `node --check routes.js` and `node --check utils/helpers.js`
+(routes.js was the only file touched, but `utils/helpers.js` was
+re-checked since it's imported). A throwaway `node -e` script (deleted
+after use) exercised `assertValidReferenceFormat` against 8 cases
+(omitted reference / valid Paystack reference / invalid-character
+Paystack reference / empty string / non-string / Korapay with
+special characters allowed through / Korapay empty string rejected /
+JuicyWay pass-through) — all eight matched expectation.
+**Why the box stays unchecked:** the actual storage/architecture
+decision this task centers on has not been made — see the new "Known
+issues" entry below, which is this session's explicit hand-off of
+that decision to the project owner.
+
 ### Task 13 — Basic security hardening [ ]
 Add rate limiting on `POST /api/pay` and `POST /api/webhooks/:provider`
 (e.g. `express-rate-limit`, a small dependency). Review every
@@ -1135,3 +1209,9 @@ per this whole project's "one task per session" rule.
   applied, `192fe24` should already be the current `origin/main` HEAD
   and this should apply with no extra steps; if not, apply `0004`
   first.
+- `0006-reference-format-validation.patch` — Task 12 (in-scope half:
+  client-supplied `reference` format validation, `routes.js` only).
+  Same caveat as `0004`/`0005`: verified with `git am` against `0fd6260`
+  (this session's own prior Task 11 commit) in a fresh `/tmp` clone,
+  `node --check` passing. Apply `0004` and `0005` first if they
+  haven't been pushed yet.

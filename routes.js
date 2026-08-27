@@ -84,6 +84,57 @@ function assertValidCustomerEmail(providerName, customer) {
   }
 }
 
+// Task 12 (idempotency — in-scope half only, see handover.md's note):
+// this repo has no persistence layer, so it can't itself remember
+// "we already processed reference X" across requests (that needs a
+// real decision — DB here, or accept-and-forward only, per the task
+// description). What it CAN do without a database: accept the
+// client's own reference (already destructured above and forwarded
+// as-is if given — see `ref = reference || generateReference(...)`
+// below) as the de facto idempotency key, and validate its format
+// before forwarding, since a malformed one currently reaches the
+// provider and fails there with a less specific error.
+//
+// Paystack's format restriction is confirmed directly against
+// paystack.com/docs/api/errors/transaction/ ("Your transaction
+// reference includes an invalid character. Only -,.,= and
+// alphanumeric characters are allowed"). Korapay's own primary docs
+// (developers.korapay.com/docs/checkout-redirect) only say the
+// reference "Must be unique for every transaction" — no character
+// restriction stated. Note: a secondary source (a third-party skills
+// listing, not developers.korapay.com itself) claimed Korapay
+// treats a repeated reference as idempotent and "returns the original
+// charge" (i.e. a cached result, not an error) — this was checked
+// directly against Korapay's own docs this session and is NOT
+// confirmed there; the primary source only states the uniqueness
+// requirement, the same as Paystack's, which DOES error on reuse
+// ("Duplicate Transaction Reference"). Until Korapay's actual
+// reuse behavior is confirmed against a primary source, don't build
+// anything (here or elsewhere) that assumes Korapay will silently
+// return a cached result for a repeated reference — the safer
+// assumption, and the one both providers' primary docs actually
+// support, is that a reused reference gets rejected as a duplicate.
+// JuicyWay and Payscribe: no format research done this session either
+// (out of the narrowed Korapay-focus scope) — non-empty-string is the
+// only check applied to them.
+function assertValidReferenceFormat(providerName, reference) {
+  if (reference === undefined || reference === null) return; // omitted -> generateReference() below produces a safe one
+
+  if (typeof reference !== 'string' || reference.length === 0) {
+    const err = new Error(`'reference', if provided, must be a non-empty string (received: ${JSON.stringify(reference)})`);
+    err.statusCode = 400;
+    throw err;
+  }
+
+  if ((providerName || '').toLowerCase() === 'paystack' && !/^[A-Za-z0-9\-.=]+$/.test(reference)) {
+    const err = new Error(
+      `'reference' contains a character Paystack does not allow — only letters, numbers, '-', '.', and '=' (received: ${JSON.stringify(reference)})`
+    );
+    err.statusCode = 400;
+    throw err;
+  }
+}
+
 function assertCurrencySupported(providerName, currency) {
   const supported = getSupportedCurrencies(providerName);
   if (!supported) return; // not yet confirmed for this provider — can't validate, don't guess
@@ -287,6 +338,13 @@ router.post('/pay', async (req, res) => {
     // fallback default — see utils/helpers.js's PROVIDERS_REQUIRING_EMAIL
     // note for exactly which providers and why Payscribe is excluded.
     assertValidCustomerEmail(providerName, customer);
+
+    // Task 12 (in-scope half): if the client supplied their own
+    // reference (the de facto idempotency key, since this backend has
+    // no persistence layer to enforce one itself), validate its format
+    // before forwarding — see assertValidReferenceFormat above for the
+    // confirmed-vs-unconfirmed provider rules this currently covers.
+    assertValidReferenceFormat(providerName, reference);
 
     const providerInstance = getProvider(providerName);
     
