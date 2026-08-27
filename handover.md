@@ -188,15 +188,22 @@ commits, unmerged" is the fully expected steady state — not something
 to chase, escalate, or try to fix.
 
 **Outstanding PRs status (updated by whichever session last checked —
-see step 2 above):** As of the session that wrote this paragraph, PR
-#2 is **open** on `Phoenix-Boss/B-PAY-backend`, `Zapier-codes:main` →
-`Phoenix-Boss:main`, containing three commits so far (`7b12a94`,
-`a4f991c`, `981f5ed`) — **confirmed unmerged**, `upstream/main`'s
-latest is still `900db65` (the earlier PR #1 merge, covering commits
-only through `0616b8e`). Per the policy above, every new pushed commit
-keeps joining this same PR #2 automatically; update this paragraph
-(don't append a new one) each time a session's step-2 check finds
-something has changed — new commits added, or (eventually) merged.
+see step 2 above):** As of this session (2026-08-27, the Task 10
+partial-pass session), `origin/main` is 11 commits ahead of
+`upstream/main` (`7b12a94` through `1fe8a34`, i.e. every commit from
+the original PR-workflow-documentation pass through Task 9's partial
+pass) — **confirmed still unmerged**, `upstream/main`'s latest is
+still `900db65` (the earlier PR #1 merge, covering commits only
+through `0616b8e`). The commit count in this paragraph had drifted
+stale (a prior version of this note said "three commits" — that was
+correct only as of whichever session wrote it; six more sessions'
+worth of commits have joined PR #2 since without this paragraph being
+kept current). Per the policy above, every new pushed commit keeps
+joining this same PR #2 automatically; update this paragraph (don't
+append a new one, and don't hardcode a commit count that will go stale
+again — describe it relative to the hashes, as done here) each time a
+session's step-2 check finds something has changed — new commits
+added, or (eventually) merged.
 
 ---
 
@@ -828,6 +835,53 @@ clear 4xx error naming the currency, not a silent fallback to
 downstream with a confusing provider-side error instead of a clear
 one).
 
+**Partial progress this session (Korapay-only focus, box left
+unchecked — same pattern as Task 9's partial):** `ROUTING_RULES` itself
+is still untouched — a full currency-aware provider *selection* across
+all four providers needs all four to have a confirmed currency list
+first, and JuicyWay/Payscribe don't yet (same blocker Task 9 hit).
+What this session added instead: `getSupportedCurrencies(provider)` in
+`utils/helpers.js` (extracted from the currency arrays that were
+already inline inside `getAmountFormat`'s Paystack/Korapay cases —
+`getAmountFormat` now calls it too, so there's one list per provider,
+not two copies that could drift apart), and a new
+`assertCurrencySupported(providerName, currency)` in `routes.js`,
+called in `POST /pay` right after a provider is resolved (whether via
+explicit `provider` or via `action` → `ROUTING_RULES`) and before
+`getProvider()`/`processPayment()` are ever reached. For Paystack and
+Korapay (the two providers with a confirmed list), a currency outside
+that list now gets a clear `400` naming both the currency and the
+provider, instead of being forwarded to reach the provider's API and
+fail there with a less obvious error (or, worse, silently going
+through if the provider's API doesn't itself reject it). For JuicyWay
+and Payscribe, `getSupportedCurrencies()` returns `null` and
+`assertCurrencySupported` treats that as "can't validate yet" and lets
+the request through unchanged — same behavior as before this task,
+not a regression, per the same "don't guess" principle Task 9 applied
+to their amount-unit rules. Also fixed a real, previously-unrelated bug
+found while wiring this in: `POST /pay`'s `catch` block always
+answered `500` regardless of `error.statusCode` — unlike the
+`/webhooks/:provider` route, which has respected `error.statusCode`
+since Task 3. That meant this task's new 400 would have silently come
+back as a 500 without this fix, so it's included in the same commit
+rather than filed separately. Verified: `node --check routes.js` and
+`node --check utils/helpers.js` both pass; a throwaway `node -e` script
+(deleted after) exercised `getSupportedCurrencies` for all four
+providers (correct lists for Paystack/Korapay, `null` for the other
+two) and `assertCurrencySupported` against six cases — Korapay+NGN
+(pass), Korapay+CAD (400), Paystack+GHS (pass), Paystack+XOF (400),
+JuicyWay+anything (pass-through), Payscribe+anything (pass-through) —
+all six matched expectation.
+**Why the box stays unchecked:** `ROUTING_RULES`'s actual provider-
+*selection* logic (as opposed to this session's after-the-fact
+validation of whatever it already picked) is still the abstract
+4-action map from before — the real "pick a provider given a
+currency+country" rework this task describes needs JuicyWay and
+Payscribe's currency lists confirmed first (JuicyWay: no task has
+checked this yet; Payscribe: blocked on PENDING_DOCS, see above), so a
+future session should pick this up once "Current focus: Korapay only"
+is lifted, not treat this partial pass as the finished task.
+
 ### Task 11 — Request validation on POST /pay [ ]
 Validate: `amount` is a positive number, `currency` is a 3-letter code
 present in whatever the Task 9/10 currency tables end up being,
@@ -1007,3 +1061,14 @@ per this whole project's "one task per session" rule.
   with `git am` against `1d7fbd3` (the pushed hash of Task 3's commit
   on `origin/main`) and pass `node --check` on both touched files, in
   a fresh `/tmp` clone, before handing off.
+- `0004-korapay-paystack-currency-routing-validation.patch` — Task 10
+  (partial, Korapay-focus session; currency-aware validation for
+  Paystack/Korapay in `POST /pay`, `utils/helpers.js` +
+  `routes.js`). Verified to apply cleanly with `git am` against
+  `1fe8a34` (Task 9's commit, the local HEAD this session started
+  from — this session did not yet know that commit's real pushed hash
+  on `origin/main`, since it hadn't been pushed yet when this session
+  ran; whoever runs `git am` for this patch should confirm
+  `git log -1` shows `1fe8a34` as the current HEAD before applying,
+  and if not, note the actual hash here) and pass `node --check` on
+  both touched files, in a fresh `/tmp` clone, before handing off.

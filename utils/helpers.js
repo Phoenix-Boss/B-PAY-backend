@@ -214,6 +214,29 @@ export function sanitizePhone(phone) {
 // currency-list-expansion half of Task 9 (pulling the real list from
 // Mavins-web) is NOT done here — see handover.md's Task 9 note for
 // why that's a separate, still-open piece of work.
+// Currency lists confirmed against primary sources (see handover.md's
+// "Confirmed research findings" section). Only Paystack and Korapay
+// have confirmed lists as of Task 10 (Korapay-focus partial) — JuicyWay
+// and Payscribe are deliberately omitted rather than guessed; see
+// getSupportedCurrencies() below and handover.md's Task 10 note.
+const CONFIRMED_PROVIDER_CURRENCIES = {
+  // paystack.com developer docs, corroborated by multiple integration
+  // guides (Chargebee, Zoho, mctaba.com).
+  paystack: ['NGN', 'GHS', 'ZAR', 'KES', 'USD'],
+  // developers.korapay.com/docs/accept-payments +
+  // /docs/payout-via-api (both primary/official).
+  korapay: ['NGN', 'GHS', 'KES', 'ZAR', 'USD', 'XAF', 'XOF', 'EGP', 'TZS'],
+};
+
+// Returns the confirmed supported-currency list for a provider, or null
+// if that provider's list hasn't been confirmed against a primary
+// source yet (JuicyWay, Payscribe). Callers MUST treat null as "can't
+// validate yet" — not as "anything goes" — see routes.js's
+// assertCurrencySupported for how this is actually enforced.
+export function getSupportedCurrencies(provider) {
+  return CONFIRMED_PROVIDER_CURRENCIES[(provider || '').toLowerCase()] || null;
+}
+
 export function getAmountFormat(provider, currency) {
   const providerLower = (provider || '').toLowerCase();
   const currencyUpper = (currency || '').toUpperCase();
@@ -222,7 +245,7 @@ export function getAmountFormat(provider, currency) {
     case 'paystack': {
       // Confirmed: paystack.com/docs/api/ — "multiplying the base
       // amount by 100" for all 5 supported currencies.
-      const supported = ['NGN', 'GHS', 'ZAR', 'KES', 'USD'];
+      const supported = getSupportedCurrencies('paystack');
       if (!supported.includes(currencyUpper)) {
         log(`⚠️ Paystack: currency ${currencyUpper} is not in the confirmed-supported list (${supported.join(', ')})`, 'warn');
       }
@@ -235,7 +258,7 @@ export function getAmountFormat(provider, currency) {
       // unit, no multiplier. Currency list per
       // developers.korapay.com/docs/accept-payments +
       // /docs/payout-via-api.
-      const supported = ['NGN', 'GHS', 'KES', 'ZAR', 'USD', 'XAF', 'XOF', 'EGP', 'TZS'];
+      const supported = getSupportedCurrencies('korapay');
       if (!supported.includes(currencyUpper)) {
         log(`⚠️ Korapay: currency ${currencyUpper} is not in the confirmed-supported list (${supported.join(', ')})`, 'warn');
       }

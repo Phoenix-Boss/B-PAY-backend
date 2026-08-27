@@ -3,7 +3,7 @@ import { Paystack } from './providers/paystack.js';
 import { Payscribe } from './providers/payscribe.js';
 import { Juicyway } from './providers/juicyway.js';
 import { Korapay } from './providers/korapay.js';
-import { log, formatPayload, generateReference } from './utils/helpers.js';
+import { log, formatPayload, generateReference, getSupportedCurrencies } from './utils/helpers.js';
 
 const router = express.Router();
 
@@ -17,6 +17,41 @@ const ROUTING_RULES = {
   payout: 'korapay',
   international: 'juicyway',
 };
+
+// Task 10 (Korapay-focus partial — see handover.md's "Current focus:
+// Korapay only" section): ROUTING_RULES above still only maps an
+// abstract `action` string to a provider with zero awareness of
+// currency, exactly the gap this task describes. A full fix (pick a
+// provider from currency+country, across all four providers) isn't
+// possible yet — Paystack and Korapay are the only two providers with
+// a confirmed currency list (see getSupportedCurrencies() in
+// utils/helpers.js); JuicyWay and Payscribe aren't confirmed and we
+// have no working keys to verify a guess against.
+//
+// What this DOES do now: once a provider has been chosen (via explicit
+// `provider`, or via `action` -> ROUTING_RULES), if that provider is
+// one of the two with a confirmed list, the requested currency is
+// checked against it *before* ever calling the provider. A mismatch
+// returns a clear 400 naming the currency and the provider — not the
+// silent 100-guaranteed-to-fail-downstream behavior the task
+// description calls out. For juicyway/payscribe this check is skipped
+// entirely (falls through, same behavior as before this task) since
+// there's nothing confirmed yet to validate against — see
+// handover.md's Task 10 note for what's left once those two providers
+// have their own confirmed currency lists.
+function assertCurrencySupported(providerName, currency) {
+  const supported = getSupportedCurrencies(providerName);
+  if (!supported) return; // not yet confirmed for this provider — can't validate, don't guess
+
+  const currencyUpper = (currency || '').toUpperCase();
+  if (!supported.includes(currencyUpper)) {
+    const err = new Error(
+      `Currency '${currencyUpper}' is not supported by provider '${providerName}'. Supported: ${supported.join(', ')}`
+    );
+    err.statusCode = 400;
+    throw err;
+  }
+}
 
 const getProvider = (name) => {
   switch (name.toLowerCase()) {
@@ -192,13 +227,23 @@ router.post('/pay', async (req, res) => {
 
     log(`Routing to provider: '${providerName}'`);
 
+    const resolvedCurrency = currency || 'NGN';
+
+    // Task 10 (Korapay-focus partial): reject a currency the resolved
+    // provider is confirmed NOT to support, instead of forwarding it
+    // and letting the provider API fail with a confusing error (or, in
+    // the worst case, silently accepting a currency the provider
+    // doesn't actually process correctly). See assertCurrencySupported
+    // above for exactly which providers this currently covers.
+    assertCurrencySupported(providerName, resolvedCurrency);
+
     const providerInstance = getProvider(providerName);
     
     const ref = reference || generateReference(providerName);
     
     const paymentData = {
       amount,
-      currency: currency || 'NGN',
+      currency: resolvedCurrency,
       reference: ref,
       customer,
     };
@@ -217,7 +262,11 @@ router.post('/pay', async (req, res) => {
 
   } catch (error) {
     log(`Payment Error: ${error.message}`, 'error');
-    return res.status(500).json({
+    // Respects error.statusCode when the error carries one (e.g. the
+    // 400 from assertCurrencySupported above, Task 10) instead of
+    // always answering 500 — same pattern already used by the
+    // /webhooks/:provider route below (Task 3).
+    return res.status(error.statusCode || 500).json({
       status: false,
       message: error.message || 'Payment processing failed',
     });
