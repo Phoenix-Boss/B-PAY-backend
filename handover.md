@@ -387,20 +387,28 @@ added, or (eventually) merged.
 
 ## Project owner decisions (recorded verbatim from the owner — resolves previously open questions; read before touching reference/idempotency or anything wallet-related)
 
-### Decision 1 — Reference generation + ownership (resolves the storage question Task 12 deliberately left open, see "Known issues" below)
-The payment `reference` is generated **client-side, by the app**, at the
-moment payment is initiated — not by this backend, and not shown to the
-user. The app writes that reference to Supabase *before* the provider is
-called. When the provider's webhook fires, it is received by a **Supabase
-Edge Function**, not by an endpoint on this Express backend — the edge
-function reads the webhook payload, matches it against the reference
-already sitting in the Supabase table, and writes the result back to that
-table. This settles Task 12's open question: this backend does **not**
-need its own idempotency store (SQLite/JSON file, etc.) — that
-responsibility lives on the Supabase side, which already has a database.
-This backend's role stays what Task 12's in-scope half already built:
-accept whatever `reference` the caller supplies, validate its format, and
-forward it as-is to the provider.
+### Decision 1 — Reference generation + ownership, and who calls this backend (resolves the storage question Task 12 deliberately left open, see "Known issues" below)
+**Correction from the project owner to this decision (see chat, this
+supersedes the first version of this note):** the client app does **not**
+call this backend directly. The actual flow: the app generates the
+`reference` client-side at the moment payment is initiated (not shown to
+the user) and writes it to Supabase. From that point on, the **Supabase
+Edge Function is this backend's caller** — it is the edge function, not
+the app, that calls this backend's `POST /pay` (passing that same
+reference through), and it's the edge function that receives the
+provider's webhook, matches it against the reference already sitting in
+the Supabase table, and writes the result back to that table. So in
+production this backend is called by Supabase infrastructure, not
+directly by the mobile/web client.
+This still settles Task 12's open question the same way as before: this
+backend does **not** need its own idempotency store (SQLite/JSON file,
+etc.) — that responsibility lives on the Supabase side, which already has
+a database. This backend's role stays what Task 12's in-scope half
+already built: accept whatever `reference` it's given, validate its
+format, and forward it as-is to the provider. The only thing that changed
+from this decision's first draft is **who** that caller is (the Supabase
+Edge Function, not the app) — not what this backend itself does with the
+reference.
 
 ### Decision 2 — Wallet crediting logic (Supabase/Mavins-web side, not this backend — noted here for continuity)
 Once the Supabase Edge Function confirms a webhook, Supabase computes the
@@ -485,15 +493,18 @@ the place to design that UI/wallet code, just to preserve the decision.
   charges for what the user experienced as one action. **RESOLVED by
   the project owner — see "Project owner decisions" → Decision 1
   above:** the app generates the reference client-side and stores it in
-  Supabase before calling this backend; webhook receipt of record and
-  reconciliation happen in a Supabase Edge Function, not here. This
-  backend does not build its own idempotency store — it only validates
-  and forwards whatever `reference` it's given (already done, Task 12).
-  In practice this means every caller is now expected to always supply
-  its own client-generated reference (not rely on this backend's
-  fallback `generateReference()`), so the true no-reference-supplied
-  double-charge case above should mostly stop occurring once the app
-  side is updated to match Decision 1 — see the new Task 23 below.
+  Supabase; a **Supabase Edge Function** — not the app directly — is
+  this backend's actual caller, forwarding that same reference through
+  when it calls `POST /pay`, and that same edge function is also where
+  webhook receipt of record and reconciliation happen. This backend
+  does not build its own idempotency store — it only validates and
+  forwards whatever `reference` it's given (already done, Task 12). In
+  practice this means this backend's real-world caller (the edge
+  function) is now expected to always supply a client-originated
+  reference rather than rely on this backend's fallback
+  `generateReference()`, so the true no-reference-supplied double-charge
+  case above should mostly stop occurring once the edge function is
+  built to match Decision 1 — see the new Task 23 below.
 - No rate limiting anywhere.
 - Provider error messages are passed back to the client close to
   verbatim (`error.message || 'Payment processing failed'`) — worth
@@ -1224,27 +1235,37 @@ this file is. Don't start implementing fixes in this same session —
 investigation and implementation are two different tasks here, exactly
 per this whole project's "one task per session" rule.
 
-### Task 23 — Confirm this backend no longer needs to be the reference source [ ]
-Per "Project owner decisions" → Decision 1: the app now generates and
-owns the payment `reference` client-side (stored in Supabase before this
-backend is ever called), and reconciliation happens in a Supabase Edge
-Function, not here. Audit `POST /pay` in `routes.js` and confirm that
-path: (a) still works correctly when the caller always supplies its own
+### Task 23 — Confirm this backend no longer needs to be the reference source, and that its real caller is the edge function [ ]
+Per "Project owner decisions" → Decision 1 (as corrected): the app
+generates and owns the payment `reference` client-side and writes it to
+Supabase, but this backend's actual caller is the **Supabase Edge
+Function**, not the app directly — the edge function calls `POST /pay`
+with that reference, and also owns webhook reconciliation. Audit
+`POST /pay` in `routes.js` and confirm that path: (a) still works
+correctly when the caller (the edge function) always supplies its own
 `reference` (the common case going forward), and (b) decide whether
 `generateReference()`'s own-reference fallback should stay as a defensive
 default for malformed/legacy callers or be treated as a bug signal (log a
-warning) now that it's not supposed to be relied on. Don't remove the
-fallback outright without checking whether any current caller still
-depends on it — this is an audit-and-decide task, not an automatic
-deletion.
+warning) now that it's not supposed to be relied on. Also worth checking
+as part of this audit: whether `POST /pay` needs any caller-identity/auth
+check now that its intended caller is a trusted Supabase Edge Function
+rather than an untrusted client directly (this backend currently has no
+such check — flag it as a new "Known issues" bullet if it's genuinely
+missing, don't fix it in this same task unless it's trivial). Don't
+remove the reference fallback outright without checking whether any
+current caller still depends on it — this is an audit-and-decide task,
+not an automatic deletion.
 
 ### Task 24 — Mavins-web: implement wallet-crediting + first-time-vs-returning-user logic [ ]
 Per "Project owner decisions" → Decisions 2 and 3 above (owner-provided,
 recorded in this file for continuity — implementation belongs in
-Mavins-web, not here). Copy Decisions 2 and 3 into Mavins-web's own
-`handover.md` as their own task(s) before starting: (1) client-side
-reference generation + Supabase write, to match Decision 1 and unblock
-this repo's Task 23; (2) wallet-balance computation on confirmed webhook
+Mavins-web, not here). Copy Decisions 1 (as corrected), 2, and 3 into
+Mavins-web's own `handover.md` as their own task(s) before starting: (1)
+client-side reference generation + Supabase write, **and** the Supabase
+Edge Function that calls this backend's `POST /pay` with that reference
+(the app itself should stop calling this backend directly, if it
+currently does) — this unblocks this repo's Task 23; (2) wallet-balance
+computation on confirmed webhook
 (full amount minus platform fee, credited only for returning users doing
 a top-up — first-time users who pay directly for a campaign see no
 wallet balance change, ever); (3) the shared user/admin success screen
@@ -1303,3 +1324,18 @@ session rule as this file.
   (this session's own prior Task 11 commit) in a fresh `/tmp` clone,
   `node --check` passing. Apply `0004` and `0005` first if they
   haven't been pushed yet.
+- `0007-handover-owner-decisions-wallet-reference.patch` — docs-only,
+  not tied to a numbered task box: records the project owner's
+  Decision 1/2/3 (reference storage, wallet crediting, success UI),
+  adds Task 23/24. Verified with `git am` against `2423c7c` (Task 12's
+  commit) in a fresh `/tmp` clone. **Superseded in part by `0008`
+  below — apply both, in order, `0007` then `0008`.**
+- `0008-handover-decision1-correction-edge-function.patch` — docs-only
+  correction to `0007`: Decision 1 originally said the app calls this
+  backend directly; the project owner corrected this — the app writes
+  the reference to Supabase, but the **Supabase Edge Function** is
+  this backend's actual caller, not the app. Updated Decision 1, the
+  matching "Known issues" bullet, and Tasks 23/24 accordingly. Verified
+  with `git am` against `5582fdf` (this session's own prior commit,
+  i.e. `0007` applied) in a fresh `/tmp` clone. Requires `0007` applied
+  first — will not apply standalone against `2423c7c`.
