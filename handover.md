@@ -255,12 +255,31 @@ something has changed — new commits added, or (eventually) merged.
   transfer/pay-with-bank for NG, EFT for ZA, card broadly. Source:
   developers.korapay.com/docs/accept-payments and
   developers.korapay.com/docs/payout-via-api (both primary/official).
-- Webhook signature: header `x-korapay-signature`, HMAC-SHA256 of the
-  JSON body, keyed with the webhook secret. Source found so far is a
-  secondary aggregator (lobehub.com), **not yet confirmed against
-  developers.korapay.com/docs/webhooks directly** — do that as part of
-  the webhook task, don't ship signature verification code based only
-  on this note.
+- Webhook signature: **confirmed directly** against
+  developers.korapay.com/docs/webhooks (fetched 2026-08-27). Header
+  `x-korapay-signature`, value is a hex-encoded **HMAC-SHA256**.
+  Important nuance found on direct read, different from Paystack: the
+  hash is computed over **ONLY the `data` object**, not the full
+  payload — Korapay's own official Node/PHP examples both hash
+  `JSON.stringify(req.body.data)` / `json_encode($requestBody['data'])`,
+  never the whole body. Verified numerically this session that a
+  full-body hash and a data-only hash differ for the same payload, so
+  this distinction is load-bearing, not cosmetic — hashing the whole
+  body would silently reject every genuine webhook. Also confirmed:
+  events are `transfer.success`/`transfer.failed`,
+  `charge.success`/`charge.failed`, `refund.success`/`refund.failed`
+  (six total, unlike Paystack which has no charge-failure event at
+  all); `data` always includes `amount`, `fee`, `currency`, `status`
+  (`success`/`failed`), `reference`, plus event-specific extras
+  (`batch_reference` for bulk payouts, `payment_method` for pay-ins,
+  `virtual_bank_account_details` for NG VBA pay-ins, etc). Korapay
+  wants a `200` regardless of any response body content — "does not
+  pay attention to any request parameters apart from the request
+  status code" — and retries for up to 72 hours on anything else.
+  This repo now implements `POST /api/webhooks/korapay` (Task 4):
+  verifies the signature (401 on failure/missing), logs all six event
+  types with reference/amount/currency/status (no persistence layer
+  yet — see Task 12).
 - This repo's provider file already has comments citing the correct
   `charges/initialize` and `charges/:reference` endpoints (fixed in a
   prior session, per the comments in `providers/korapay.js`) — no need
@@ -471,13 +490,44 @@ signature accepted, tampered signature rejected, missing signature
 rejected, wrong secret rejected) — all four passed — then deleted the
 script per the process doc's instruction not to commit scratch files.
 
-### Task 4 — Korapay webhook: confirm signature scheme + implement [ ]
+### Task 4 — Korapay webhook: confirm signature scheme + implement [x]
 The `x-korapay-signature` / HMAC-SHA256 scheme in the findings section
 above came from a secondary source — confirm it directly against
 developers.korapay.com/docs/webhooks before implementing. Update the
 "Confirmed research findings" section above to say "confirmed
 directly" (with the exact primary URL) once you have, so future
 sessions don't redo this. Then implement the handler.
+
+**What was found / what changed:** Fetched
+developers.korapay.com/docs/webhooks directly. The secondary-source
+note was right about the algorithm (HMAC-SHA256) but incomplete on
+scope: Korapay signs **only the `data` object**, not the full request
+body — different from Paystack's Task 3 implementation, which signs
+the whole body. Confirmed this distinction is load-bearing (not just
+a documentation nuance) by hashing the same sample payload both ways
+in a throwaway script and getting different hashes — a naive
+full-body implementation copied from the Paystack pattern would have
+silently rejected every real Korapay webhook. Implemented
+`verifyWebhookSignature(body, signature)` on the `Korapay` class in
+`providers/korapay.js`, hashing `JSON.stringify(body?.data)` (mirrors
+Korapay's own official Node/PHP examples exactly), same
+constant-time-compare pattern as Paystack's Task 3 implementation.
+Wired it into the `korapay` webhook handler in `routes.js`: same
+401-on-invalid-signature behavior as Paystack. On any of the six
+confirmed event types (`charge.success`/`charge.failed`,
+`transfer.success`/`transfer.failed`, `refund.success`/
+`refund.failed`), logs reference/amount/currency/status; anything else
+is logged generically. Updated the findings section above to
+"confirmed directly" with the fetch date, the full event list, the
+`data` object's documented fields, and the retry/response-code
+behavior (always wants a `200`, retries up to 72h otherwise) for
+future reference. Also confirmed the raw-body concern from Task 2
+doesn't apply to Korapay either — its own official examples
+re-serialize the parsed body just like Paystack's do. Verified:
+`node --check routes.js` and `node --check providers/korapay.js` both
+pass; a throwaway `node -e` script exercised valid/tampered/missing/
+wrong-secret cases (all four correct) plus the full-body-vs-data-only
+hash comparison — deleted after use, not committed.
 
 ### Task 5 — JuicyWay webhook: find the real scheme + implement [ ]
 Nothing about JuicyWay's webhook signature scheme has been found yet
@@ -719,3 +769,9 @@ per this whole project's "one task per session" rule.
   commit on `origin/main` — not the local `567d518` it had before the
   human pushed it) and pass `node --check` on both touched files, in a
   fresh `/tmp` clone, before handing off.
+- `0003-korapay-webhook-signature.patch` — Task 4 (Korapay webhook
+  signature verification + 6-event handling,
+  `providers/korapay.js` + `routes.js`). Verified to apply cleanly
+  with `git am` against `1d7fbd3` (the pushed hash of Task 3's commit
+  on `origin/main`) and pass `node --check` on both touched files, in
+  a fresh `/tmp` clone, before handing off.

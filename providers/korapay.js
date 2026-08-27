@@ -1,4 +1,5 @@
 import fetch from 'node-fetch';
+import crypto from 'crypto';
 import { log, handleApiCall, getProviderKey, generateReference, formatPayload, getProviderBaseUrl } from '../utils/helpers.js';
 
 export class Korapay {
@@ -82,5 +83,31 @@ export class Korapay {
 
     log(`Korapay Verification Response: ${formatPayload(result)}`);
     return result;
+  }
+
+  // ==================================================
+  // 🔔 WEBHOOK SIGNATURE VERIFICATION
+  // ==================================================
+  // Confirmed directly against developers.korapay.com/docs/webhooks
+  // (2026-08-27 session). Important difference from Paystack: the
+  // `x-korapay-signature` header is a hex-encoded HMAC-SHA256 of
+  // ONLY the `data` object from the payload — NOT the full body like
+  // Paystack. Korapay's own official example hashes
+  // `JSON.stringify(req.body.data)`, so this method takes the full
+  // parsed body and hashes just its `.data` field, matching that
+  // exactly. Like Paystack, this is over the express.json()-parsed-
+  // and-re-serialized body, not raw bytes — Korapay's own official
+  // examples (Node and PHP alike) do the same re-serialization, so
+  // Task 2's raw-body concern doesn't apply here either.
+  verifyWebhookSignature(body, signature) {
+    if (!signature) return false;
+    const hash = crypto
+      .createHmac('sha256', this.secretKey)
+      .update(JSON.stringify(body?.data))
+      .digest('hex');
+    const hashBuffer = Buffer.from(hash, 'utf8');
+    const sigBuffer = Buffer.from(signature, 'utf8');
+    if (hashBuffer.length !== sigBuffer.length) return false;
+    return crypto.timingSafeEqual(hashBuffer, sigBuffer);
   }
 }

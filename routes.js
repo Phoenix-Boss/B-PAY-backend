@@ -31,20 +31,21 @@ const getProvider = (name) => {
 // ==================================================
 // 🔔 WEBHOOK HANDLERS
 // ==================================================
-// Paystack (Task 3) now does real signature verification — see
-// providers/paystack.js#verifyWebhookSignature. Korapay/Juicyway/
-// Payscribe (Tasks 4-6) are still stubs that just acknowledge receipt
-// without verifying anything yet, so the provider doesn't retry-storm
-// us while real handling isn't implemented for those three.
+// Paystack (Task 3) and Korapay (Task 4) now do real signature
+// verification — see providers/paystack.js#verifyWebhookSignature and
+// providers/korapay.js#verifyWebhookSignature. Juicyway/Payscribe
+// (Tasks 5-6) are still stubs that just acknowledge receipt without
+// verifying anything yet, so the provider doesn't retry-storm us
+// while real handling isn't implemented for those two.
 //
-// Raw-body note from Task 2 turned out NOT to apply to Paystack once
-// confirmed directly against paystack.com/docs/payments/webhooks/ —
-// Paystack's own official example hashes `JSON.stringify(req.body)`
-// (the express.json()-parsed body), not raw bytes. Leaving this note
-// in place for Korapay/Juicyway/Payscribe though, since each of those
-// providers' actual signature requirements haven't been confirmed yet
-// (see handover.md's findings section) — one of them may turn out to
-// genuinely need `express.json({ verify: (req, res, buf) => { req.rawBody = buf; } })`.
+// Raw-body note from Task 2 has now been checked against both
+// Paystack and Korapay's own official examples and does NOT apply to
+// either — both hash the express.json()-parsed-and-re-serialized
+// body, not raw bytes. Leaving the note for Juicyway/Payscribe still,
+// since neither of those two providers' actual signature requirements
+// have been confirmed yet (see handover.md's findings section) — one
+// of them may turn out to genuinely need
+// `express.json({ verify: (req, res, buf) => { req.rawBody = buf; } })`.
 const webhookHandlers = {
   paystack: async (req) => {
     const provider = new Paystack();
@@ -83,8 +84,38 @@ const webhookHandlers = {
     return { received: true };
   },
   korapay: async (req) => {
-    log(`Korapay webhook stub received (no verification yet): ${formatPayload(req.body)}`);
-    // TODO (Task 4): verify x-korapay-signature (HMAC-SHA256), then handle event
+    const provider = new Korapay();
+    const signature = req.headers['x-korapay-signature'];
+
+    if (!provider.verifyWebhookSignature(req.body, signature)) {
+      log(`Korapay webhook signature verification FAILED`, 'error');
+      const err = new Error('Invalid webhook signature');
+      err.statusCode = 401;
+      throw err;
+    }
+
+    log(`Korapay webhook signature verified OK`);
+
+    const { event, data } = req.body || {};
+    log(`Korapay webhook event: ${event}`);
+
+    switch (event) {
+      case 'charge.success':
+      case 'charge.failed':
+      case 'transfer.success':
+      case 'transfer.failed':
+      case 'refund.success':
+      case 'refund.failed':
+        // Per developers.korapay.com/docs/webhooks, `data.status` is
+        // always 'success' or 'failed' regardless of which of these
+        // six event names fired, so this just logs the outcome — no
+        // persistence layer exists yet (see Task 12).
+        log(`Korapay ${event}: reference=${data?.reference}, amount=${data?.amount}, currency=${data?.currency}, status=${data?.status}`);
+        break;
+      default:
+        log(`Korapay webhook event '${event}' received, no handler wired yet — logged only`);
+    }
+
     return { received: true };
   },
   juicyway: async (req) => {
@@ -197,9 +228,9 @@ router.get('/verify', async (req, res) => {
 });
 
 // POST /api/webhooks/:provider
-// Paystack (Task 3): real signature verification, 401 on mismatch.
-// Korapay/Juicyway/Payscribe (Tasks 4-6): still routing-skeleton
-// stubs from Task 2 — always ack 200, nothing to reject on yet.
+// Paystack (Task 3) and Korapay (Task 4): real signature verification,
+// 401 on mismatch. Juicyway/Payscribe (Tasks 5-6): still routing-
+// skeleton stubs from Task 2 — always ack 200, nothing to reject on yet.
 router.post('/webhooks/:provider', async (req, res) => {
   const { provider } = req.params;
 
