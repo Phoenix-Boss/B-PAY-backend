@@ -3,7 +3,7 @@ import { Paystack } from './providers/paystack.js';
 import { Payscribe } from './providers/payscribe.js';
 import { Juicyway } from './providers/juicyway.js';
 import { Korapay } from './providers/korapay.js';
-import { log, formatPayload, generateReference, getSupportedCurrencies } from './utils/helpers.js';
+import { log, formatPayload, generateReference, getSupportedCurrencies, isValidCurrencyCode, isValidEmail, providerRequiresEmail } from './utils/helpers.js';
 
 const router = express.Router();
 
@@ -39,6 +39,51 @@ const ROUTING_RULES = {
 // there's nothing confirmed yet to validate against — see
 // handover.md's Task 10 note for what's left once those two providers
 // have their own confirmed currency lists.
+// Task 11: basic request-shape validation on POST /pay, run before any
+// provider is even resolved. Previously the only check here was
+// `if (!amount)` — which passed for negative numbers, non-numeric
+// strings, etc. — everything else fell through to whichever provider's
+// API happened to reject it, usually with a far less specific error.
+function assertValidAmount(amount) {
+  if (typeof amount !== 'number' || !Number.isFinite(amount) || amount <= 0) {
+    const err = new Error(
+      `'amount' must be a positive number (received: ${JSON.stringify(amount)})`
+    );
+    err.statusCode = 400;
+    throw err;
+  }
+}
+
+// Shape-only check (3-letter code) — this is deliberately NOT the same
+// thing as assertCurrencySupported below, which checks against a
+// specific provider's confirmed-supported list. This one just rejects
+// obviously malformed input (e.g. "Naira", "12", "") before routing
+// even happens.
+function assertValidCurrencyFormat(currency) {
+  if (!isValidCurrencyCode(currency)) {
+    const err = new Error(
+      `'currency' must be a 3-letter code, e.g. 'NGN' (received: ${JSON.stringify(currency)})`
+    );
+    err.statusCode = 400;
+    throw err;
+  }
+}
+
+// Only enforced for providers confirmed (by reading their
+// processPayment() call sites, see utils/helpers.js's
+// PROVIDERS_REQUIRING_EMAIL note) to forward the email with no
+// fallback default. Payscribe is excluded on purpose — see that note.
+function assertValidCustomerEmail(providerName, customer) {
+  if (!providerRequiresEmail(providerName)) return;
+  if (!isValidEmail(customer?.email)) {
+    const err = new Error(
+      `'customer.email' is required and must be a valid email address for provider '${providerName}' (received: ${JSON.stringify(customer?.email)})`
+    );
+    err.statusCode = 400;
+    throw err;
+  }
+}
+
 function assertCurrencySupported(providerName, currency) {
   const supported = getSupportedCurrencies(providerName);
   if (!supported) return; // not yet confirmed for this provider — can't validate, don't guess
@@ -208,13 +253,15 @@ router.post('/pay', async (req, res) => {
 
     log(`Payment Request Received: ${formatPayload(req.body)}`);
 
-    // Validate required fields
-    if (!amount) {
-      return res.status(400).json({ 
-        status: false, 
-        message: 'Missing required field: amount' 
-      });
-    }
+    // Task 11: validate request shape before doing anything else —
+    // amount must actually be a positive number (not just truthy), and
+    // currency (defaulting to NGN like the rest of this handler
+    // already does) must at least look like a real 3-letter code.
+    // Malformed requests now get a specific 400 instead of falling
+    // through to a provider API call that fails confusingly.
+    assertValidAmount(amount);
+    const resolvedCurrency = currency || 'NGN';
+    assertValidCurrencyFormat(resolvedCurrency);
 
     // Smart Routing: Determine provider from action OR explicit provider field
     let providerName = provider;
@@ -227,8 +274,6 @@ router.post('/pay', async (req, res) => {
 
     log(`Routing to provider: '${providerName}'`);
 
-    const resolvedCurrency = currency || 'NGN';
-
     // Task 10 (Korapay-focus partial): reject a currency the resolved
     // provider is confirmed NOT to support, instead of forwarding it
     // and letting the provider API fail with a confusing error (or, in
@@ -236,6 +281,12 @@ router.post('/pay', async (req, res) => {
     // doesn't actually process correctly). See assertCurrencySupported
     // above for exactly which providers this currently covers.
     assertCurrencySupported(providerName, resolvedCurrency);
+
+    // Task 11: customer.email is required (and must look like an
+    // email) for providers whose processPayment() forwards it with no
+    // fallback default — see utils/helpers.js's PROVIDERS_REQUIRING_EMAIL
+    // note for exactly which providers and why Payscribe is excluded.
+    assertValidCustomerEmail(providerName, customer);
 
     const providerInstance = getProvider(providerName);
     

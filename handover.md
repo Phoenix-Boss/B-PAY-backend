@@ -418,9 +418,12 @@ added, or (eventually) merged.
   methods pass `data.amount` straight through) — **confirmed correct
   for Korapay** as of Task 7 (base currency units, not subunits), but
   still not verified one way or the other for JuicyWay or Payscribe.
-- No request body validation on `POST /pay` beyond checking `amount`
+- ~~No request body validation on `POST /pay` beyond checking `amount`
   is truthy — no type check, no positivity check, no currency format
-  check, no customer-object shape check.
+  check, no customer-object shape check.~~ **Resolved by Task 11** —
+  see that task's note for what's actually validated now
+  (amount/currency format/customer.email where the resolved provider
+  requires it).
 - No idempotency protection — `generateReference()` always mints a
   fresh reference, so a client retry (e.g. a double-tap on mobile) can
   create two separate charges for what the user experienced as one
@@ -882,7 +885,7 @@ checked this yet; Payscribe: blocked on PENDING_DOCS, see above), so a
 future session should pick this up once "Current focus: Korapay only"
 is lifted, not treat this partial pass as the finished task.
 
-### Task 11 — Request validation on POST /pay [ ]
+### Task 11 — Request validation on POST /pay [x]
 Validate: `amount` is a positive number, `currency` is a 3-letter code
 present in whatever the Task 9/10 currency tables end up being,
 `customer.email` is present and looks like an email when the target
@@ -892,6 +895,56 @@ fall through to a provider API call that fails confusingly. Keep this
 dependency-free (no new npm package needed) unless the validation
 logic gets unwieldy as plain JS — if so, `zod` is a reasonable, small
 addition; note the choice either way in the commit message.
+
+**What was found / what changed:** Kept this dependency-free — plain
+regex/type checks, no `zod` needed, the logic stayed small. Added
+three new checks to `utils/helpers.js`: `isValidCurrencyCode()`
+(3-letter format, case-insensitive), `isValidEmail()` (basic
+`x@y.z`-shape check, not a full RFC 5322 validator — good enough to
+catch typos/empty strings without being its own project), and
+`providerRequiresEmail()`. That last one required reading all four
+providers' `processPayment()` call sites directly rather than assuming
+just Paystack/Korapay per the task's own hint text: **JuicyWay also
+requires email** (forwards `data.customer?.email` with no fallback,
+same shape as Paystack) — this wasn't previously called out anywhere
+in the findings section, so it's new information from this task, not
+just implementation. **Payscribe does NOT require it** at this
+layer — its `processPayment()` already defaults to a placeholder
+`'customer@example.com'` when none is given, so enforcing a real email
+for Payscribe here would be inventing a stricter requirement than the
+code actually has (flagging Payscribe silently accepting a fake email
+as its own separate, pre-existing concern — not fixed as part of this
+task, since that's a Payscribe-provider-file change, not a
+request-validation one).
+In `routes.js`: `assertValidAmount()` (rejects non-number, non-finite,
+zero, and negative — the old `if (!amount)` check let a numeric-string
+`"100"` or `NaN` through silently) and `assertValidCurrencyFormat()`
+(shape-only 3-letter check, run for every request regardless of
+provider) both run immediately after logging the incoming request,
+before any provider routing happens. `assertValidCustomerEmail()` runs
+right after `assertCurrencySupported` (Task 10), once `providerName`
+is known, since whether email is required depends on which provider
+got picked. All three throw an `Error` with `.statusCode = 400` and a
+specific message naming the bad field and what was received — caught
+by the same `error.statusCode || 500` catch-block fix Task 10 already
+made, so these come back as real 400s, not 500s.
+Deliberately NOT done here (would be scope creep / a different task):
+cross-checking `currency` against the *resolved provider's* actual
+supported list — that's already `assertCurrencySupported`'s job
+(Task 10); this task's currency check is shape-only ("does it look
+like a real code"), not a whitelist check, per the task's own
+"present in whatever the Task 9/10 currency tables end up being"
+framing, which reads as "consistent with those tables' format," not
+"re-implement the same lookup twice."
+Verified: `node --check routes.js` and `node --check utils/helpers.js`
+both pass. A throwaway `node -e` script (deleted after use) exercised
+`isValidCurrencyCode` (9 cases: valid/lowercase/word/numeric/empty/
+undefined/valid/2-letter/4-letter — all correct), `isValidEmail` (6
+cases: valid/invalid/empty/undefined/missing-TLD/valid-with-subdomain —
+all correct), `providerRequiresEmail` for all four providers (correct
+per the note above), and `assertValidAmount`'s logic standalone (7
+cases: valid/zero/negative/numeric-string/NaN/Infinity/small-decimal —
+all correct).
 
 ### Task 12 — Idempotency protection [ ]
 This one needs a decision, not just code: this repo currently has no
@@ -1072,3 +1125,13 @@ per this whole project's "one task per session" rule.
   `git log -1` shows `1fe8a34` as the current HEAD before applying,
   and if not, note the actual hash here) and pass `node --check` on
   both touched files, in a fresh `/tmp` clone, before handing off.
+- `0005-post-pay-request-validation.patch` — Task 11 (request-shape
+  validation on `POST /pay`: `utils/helpers.js` + `routes.js`). Same
+  caveat as `0004` above: verified with `git am` against `192fe24`
+  (this session's own prior Task 10 commit, not yet known to be pushed
+  to `origin/main` at the time this patch was generated) in a fresh
+  `/tmp` clone, `node --check` passing on both touched files. If
+  `0004` has already been applied and pushed by the time this patch is
+  applied, `192fe24` should already be the current `origin/main` HEAD
+  and this should apply with no extra steps; if not, apply `0004`
+  first.

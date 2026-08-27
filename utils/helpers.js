@@ -144,6 +144,42 @@ export function getProviderKey(provider, type) {
   return key;
 }
 
+// ==================================================
+// ✅ REQUEST VALIDATION (Task 11)
+// ==================================================
+// Dependency-free plain-JS validation, per the task's own suggestion
+// ("keep this dependency-free... unless the validation logic gets
+// unwieldy as plain JS" — it hasn't, so no zod added).
+
+const CURRENCY_CODE_REGEX = /^[A-Za-z]{3}$/;
+const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+// Providers whose processPayment() call sites forward customer.email
+// (or a top-level email derived from it) straight to the provider's
+// API with no fallback default — confirmed by reading each provider
+// file directly this session. Paystack and Korapay were already known
+// to require one (per the task description); JuicyWay does too
+// (providers/juicyway.js forwards `data.customer?.email` with no
+// default, same shape as Paystack). Payscribe is deliberately
+// excluded: its processPayment() already defaults to a placeholder
+// email ('customer@example.com') when none is given, so it doesn't
+// actually require one at this validation layer — Payscribe silently
+// accepting a fake email is a separate, pre-existing concern, not
+// something to newly block here.
+const PROVIDERS_REQUIRING_EMAIL = ['paystack', 'korapay', 'juicyway'];
+
+export function isValidCurrencyCode(currency) {
+  return CURRENCY_CODE_REGEX.test(currency || '');
+}
+
+export function isValidEmail(email) {
+  return typeof email === 'string' && EMAIL_REGEX.test(email);
+}
+
+export function providerRequiresEmail(provider) {
+  return PROVIDERS_REQUIRING_EMAIL.includes((provider || '').toLowerCase());
+}
+
 export function validateProviderKeys() {
   const providers = ['paystack', 'payscribe', 'juicyway', 'korapay'];
   const missing = [];
