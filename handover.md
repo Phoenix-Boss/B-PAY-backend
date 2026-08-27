@@ -329,7 +329,7 @@ Do the first unchecked task, in order. Do not skip ahead unless a task
 explicitly says its prerequisite isn't ready (e.g. Payscribe waiting on
 docs).
 
-### Task 1 — Fix or diagnose the Render build mismatch [ ]
+### Task 1 — Fix or diagnose the Render build mismatch [x]
 `render.yaml` builds with `npm run build` and starts `node
 dist/index.js`; `package.json` has no `build` script and there's no
 `dist/`. Figure out what's actually true: is this repo deployed via
@@ -342,6 +342,35 @@ for plain ESM JS. Don't add a real TypeScript build step as a side
 effect of this task; that's out of scope here even though
 `tsconfig.json` exists (flag it as a separate potential future task
 instead, don't act on it).
+
+**What was found / what changed:** Could not reach Render's dashboard
+directly (no credentials, and the live URL isn't discoverable via
+web_search to fetch its actual response), so went with the task's
+own specified fallback rather than guess. Confirmed from the repo
+itself: `package.json` has only `"start": "node index.js"` — no
+`build` script at all — and there is no `dist/` directory anywhere in
+the tree (`ls dist` → no such file). Also confirmed there are **no
+TypeScript source files** (`find . -name "*.ts"` → empty) —
+`tsconfig.json` is unused boilerplate (looks like an untouched
+`tsc --init` output, still has its default commented-out options).
+Since the app that's live at `b-pay-backend.onrender.com` (per the
+project's own notes) is presumably actually running *something*, the
+most likely real-world explanation is Render's dashboard has a
+manually-configured start command that already overrides
+`render.yaml` (Render lets dashboard settings win over the file when
+both exist) — but that's an inference, not confirmed directly, since
+dashboard access wasn't available this session. Fixed `render.yaml`
+to match what the repo actually is either way: `buildCommand: npm
+install`, `startCommand: node index.js`. This makes the file correct
+and safe to use if/when the project ever does trigger a redeploy from
+it (e.g. via "Clear build cache & deploy" or a fresh Render service),
+without touching anything on the live dashboard. Did **not** add a
+real TypeScript build step — flagging that as a legitimate future
+task if the project ever wants `tsconfig.json` to do something real,
+but out of scope here per the task's own instruction.
+Verified with `node --check index.js` and `node --check routes.js`
+(both pass — this task only touched `render.yaml`, a config file with
+no syntax to check itself).
 
 ### Task 2 — Add a webhook route skeleton [ ]
 Add `POST /api/webhooks/:provider` to `routes.js`. For now this just
