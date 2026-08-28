@@ -1677,18 +1677,35 @@ on auth state, and route logged-in users directly to checkout
 initialization instead.
 
 **Done, in Mavins-web (not this repo) — see that repo's own
-`handover.md` → Task 26** for the full write-up (this task's own text
+`handover.md` → Task 28** for the full write-up (this task's own text
 above was copied there verbatim as required by the "3-repo project"
-convention, since it only lived here before). Short version: the
-routing gap was entirely in `promote/page.tsx`'s `goFundWallet()`,
-which always sent every user to `/fund-wallet` regardless of auth
-state — `/api/payments/initialize`'s authenticated branch already
-derived the user's own email from their session server-side, so the
-fix only needed to skip the intermediate page/click for logged-in
-users, not touch any server-side email handling. Commit `be3ee34` in
-`mavins-web`, `npx tsc --noEmit` clean, live end-to-end check still
-recommended post-deploy (no sandbox network access to Supabase/Korapay
-from either repo).
+convention, since it only lived here before).
+
+**Correction (this note originally pointed at the wrong task number
+and a nonexistent commit hash — a stale patch landed before a
+corrected one was ready; fixed here, see this file's own patch log for
+how that happened):** the real task landed as Mavins-web's own
+**Task 28**, not Task 26 — a different, unrelated task (a Korapay
+currency/unit fix) had already claimed "Task 26" there by the time
+this one shipped. Verified against the actual repo (not the
+handover.md's own self-reported hash, which doesn't exist there —
+likely a pre-`git am` local hash that changed once applied): the real
+commit is `1ae8ceb`.
+
+**What actually shipped is also more refined than this task's original
+framing ("branch on auth state") above** — corrected mid-session by
+Mavins-web's own session, per an explicit product-owner clarification:
+the axis that matters isn't authenticated-vs-guest, it's whether the
+account has ever held funds. A brand-new authenticated user has a
+wallet balance of exactly 0 and provably has nothing to check, so
+`promote/page.tsx` now sends them straight to checkout with no wasted
+`createCampaign` attempt; a *returning* user with a real (if possibly
+insufficient) balance still attempts `createCampaign` first, falling
+back to checkout only on an actual insufficient-funds error. Guests
+are unaffected — still routed through `/fund-wallet` since they have
+no known email to skip collecting. `npx tsc --noEmit` clean per that
+repo's own note. Live end-to-end check still recommended post-deploy
+(no sandbox network access to Supabase/Korapay from either repo).
 
 ### Task 18 — Mavins-web: reconcile the real country/currency list [ ]
 `TARGET_COUNTRIES` (`src/lib/campaign/geoAffinity.ts`) and
@@ -2068,15 +2085,30 @@ full write-up. Commit `5c1b4d2` on Mavins-web's `main`.
   fresh `/tmp` clone. Requires `0007` through `0013` applied first.
 - `0015-task17-checkbox-crossref.patch` — docs-only, checks off Task 17
   in this file (implementation itself lives in `mavins-web`, not this
-  repo — see that repo's own `handover.md` → Task 26, commit `be3ee34`
-  there). Records the short version of what was found/fixed here per
-  this project's cross-repo convention, same pattern Task 18's own note
-  already uses. Verified with `git am` against `5c51467` (origin's
-  current HEAD as of this session — several other sessions' commits
-  had landed since this session's own prior B-Pay-backend commit,
-  `6a67a81`/`0014`; pulled latest before making this edit) in a fresh
-  `/tmp` clone. Requires everything already on `main` as of `5c51467`
-  applied first (not just `0007`–`0014` — origin has since diverged
-  ahead of this patch series' own internal numbering; apply this on
-  top of whatever `main` actually has, not a reconstructed `0001`–`0014`
-  chain).
+  repo). **This version's Task 26 / `be3ee34` reference was wrong (see
+  the `b-pay-backend-task17-correction.patch` entry directly below for
+  why and how it was fixed) — landed on `main` as commit `f7df7f0`
+  anyway**, ahead of the corrected version being handed over, because
+  the human had already downloaded this file before the correction was
+  ready. Verified with `git am` against `5c51467` in a fresh `/tmp`
+  clone at the time — the patch itself applied cleanly; the *content*
+  was stale, not the mechanics.
+- `b-pay-backend-task17-correction.patch` — docs-only follow-up to the
+  above, landed on top of `f7df7f0` (not a rewrite of it — already
+  pushed/public, so corrected forward instead of amended). Fixes Task
+  17's note and the patch-log entry above: the real cross-repo task is
+  Mavins-web's own **Task 28** (not Task 26 — that number was claimed
+  by an unrelated Korapay currency fix there by the time this landed),
+  real commit `1ae8ceb` (not `be3ee34`, which was a local hash from a
+  patch that was itself later discarded — see Mavins-web's own note on
+  this task for the full story: a parallel session had already
+  implemented this same task there, more thoroughly, per a mid-session
+  product-owner correction to route by wallet balance rather than auth
+  state alone). Verified with `git am` against a fresh clone of this
+  repo's actual current `origin/main` (`f7df7f0` at the time). Uses
+  this project's newer `<repo-slug>-<description>.patch` filename
+  convention (see "Unified hand-off command format" above) rather than
+  a new sequential number — from here on, prefer that convention for
+  new patches in this file too, so numbering doesn't have to track
+  three repos' independent, interleaved sessions.
+
