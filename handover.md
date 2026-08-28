@@ -297,22 +297,18 @@ commits, unmerged" is the fully expected steady state — not something
 to chase, escalate, or try to fix.
 
 **Outstanding PRs status (updated by whichever session last checked —
-see step 2 above):** As of this session (2026-08-27, the Task 10
-partial-pass session), `origin/main` is 11 commits ahead of
-`upstream/main` (`7b12a94` through `1fe8a34`, i.e. every commit from
-the original PR-workflow-documentation pass through Task 9's partial
-pass) — **confirmed still unmerged**, `upstream/main`'s latest is
-still `900db65` (the earlier PR #1 merge, covering commits only
-through `0616b8e`). The commit count in this paragraph had drifted
-stale (a prior version of this note said "three commits" — that was
-correct only as of whichever session wrote it; six more sessions'
-worth of commits have joined PR #2 since without this paragraph being
-kept current). Per the policy above, every new pushed commit keeps
-joining this same PR #2 automatically; update this paragraph (don't
-append a new one, and don't hardcode a commit count that will go stale
-again — describe it relative to the hashes, as done here) each time a
-session's step-2 check finds something has changed — new commits
-added, or (eventually) merged.
+see step 2 above):** As of this session (the Task 25-authoring session,
+which only added a new task and did not touch code), `origin/main` is
+still ahead of `upstream/main`, latest commit `873355f` (the Task 16
+companion / DCC currency-forwarding commit) — **confirmed still
+unmerged**, `upstream/main`'s latest is still `900db65` (the earlier PR
+#1 merge, covering commits only through `0616b8e`). Per the policy
+above, every new pushed commit keeps joining this same PR #2
+automatically; update this paragraph (don't append a new one, and
+don't hardcode a commit count that will go stale again — describe it
+relative to the hashes, as done here) each time a session's step-2
+check finds something has changed — new commits added, or (eventually)
+merged.
 
 ---
 
@@ -1618,6 +1614,91 @@ with the animated country-interconnection pipeline visualization
 confirmed payment. Split further once in Mavins-web's own file if any of
 (1)/(2)/(3) turns out to be bigger than one session — same one-task-per-
 session rule as this file.
+
+### Task 25 — Mavins-web: ipapi.co geo-detection at app initialization, global + persistent-through-login, NOT stored in Supabase [ ]
+**Project owner instruction, recorded here verbatim in spirit before
+implementation:** IP geolocation (via ipapi.co) should be detected
+**once, at app initialization — i.e. on the user's first visit/page
+load, before or independent of any auth state** — made available
+**globally** across the app (every component/page that needs currency,
+country, or payment-routing context reads the same detected value, not
+a fresh per-component fetch), and that detected value must **persist
+through login** — logging in must never reset, override, or re-trigger
+the geo detection. **Explicitly do NOT persist this to Supabase or any
+other server-side/database store tied to the user's account.** The
+stated reason is important context for *how* to build this, not just
+*that* to build it: the project owner wants to **welcome users on a
+VPN** — if geo were written to a user's Supabase row, a returning VPN
+user's exit-node location could get silently overridden by (or conflict
+with) a previously-stored "real" location, or a session could end up
+trusting stale account data over what the person's connection is doing
+*right now*. The fix for that isn't "detect VPN and block it" (not
+asked for, don't add it) — it's simply: **never let this be anything
+other than fresh, client-side, per-visit, in-memory-or-session-scoped
+state.** A VPN user should be treated exactly like anyone else browsing
+from wherever their connection currently appears to be.
+
+**"Do it professionally like industry standards" — concrete shape this
+implies, not just a general instruction to be careful:**
+- A dedicated React Context/provider (e.g. `GeoProvider`, mounted in
+  `src/app/providers.tsx` **as a sibling to `AuthProvider` and
+  `ThemeProvider`, not nested inside or dependent on either** — this is
+  what actually guarantees "persists through login": if it's not a
+  child of `AuthProvider` and doesn't read `user`/session state at all,
+  logging in has structurally no way to reset it), fetching once on
+  mount and exposing `{ country, currency, loading, error }` (or
+  similar) via a `useGeo()` hook, the same pattern
+  `ThemeProvider`/`useTheme()` already establishes in this codebase —
+  match that existing convention rather than inventing a new one.
+- **Check whether `detectUserGeo` (referenced in this file's own Task
+  19 above, "via ipapi.co, already present in this codebase per an
+  earlier session") already does the fetch correctly** — if so, this
+  task may mostly be *relocating* an existing call up to true app-root
+  initialization and wrapping it in a proper global provider, not
+  writing a new ipapi.co integration from scratch. Read the current
+  code before assuming either way.
+- **Don't block initial render on the fetch.** Expose a sensible
+  loading state and a safe default (e.g. `currency: 'USD'` — matches
+  this project's own established "USD is the app's default, only
+  convert away from it when we know better" principle from Mavins-web's
+  Task 20) while the request is in flight, rather than a blank screen
+  or a layout shift once it resolves.
+- **Graceful failure is required, not optional.** ipapi.co's free tier
+  is rate-limited (historically ~1,000 requests/day on HTTPS) and can
+  fail or throttle — geo detection is an enhancement to currency/payment
+  routing, not a critical-path dependency the app should break over. On
+  failure, fall back to the same USD default as the loading state, log
+  the failure, and let the user continue normally (this app already
+  supports a manual/explicit currency choice in the payment flow per
+  earlier work — confirm that still works as an override regardless of
+  what geo-detection returns or fails to return).
+- **"Persist" almost certainly means "for this visit/tab session," not
+  "forever across devices"** — re-reconcile this with the project owner
+  directly if genuinely ambiguous when this task is picked up, but the
+  default interpretation given everything above (fresh-per-visit, VPN-
+  friendly) should be: in-memory React state for the life of the page
+  load is the right baseline. `sessionStorage` (not `localStorage`) is
+  a reasonable enhancement to survive an in-tab reload without a second
+  ipapi.co call burning rate-limit budget — but per the "no Supabase"
+  instruction's actual reasoning above, do not reach for `localStorage`
+  either, since that would persist a stale location across visits/days
+  in the same way a Supabase-backed store would, defeating the same
+  VPN-friendliness goal for a returning user whose location has since
+  changed (e.g. connected to a different VPN exit node, or genuinely
+  traveled).
+- Confirm no other part of the codebase (e.g. wherever Task 19's
+  geo-based currency/method routing landed, once that task is done) ends
+  up making its *own* separate `detectUserGeo`/ipapi.co call instead of
+  reading from this new global context — that would silently defeat the
+  "one fetch, globally shared" goal even if this task's own code is
+  otherwise correct.
+
+This is a Mavins-web-only task — no B-Pay-backend code changes. Recorded
+here per this project's cross-repo continuation convention; the session
+that picks this up should clone Mavins-web, read *that* repo's own
+`handover.md` in full first (it may have already grown a related task,
+or partially done this — don't duplicate), do the work there, and update
+Mavins-web's own file per its own process, same as Tasks 17–24 above.
 
 ---
 
