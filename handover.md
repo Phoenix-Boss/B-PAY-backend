@@ -154,6 +154,99 @@ and jump on its own.
 
 ---
 
+## Unified hand-off command format — MANDATORY, every session, all three repos
+
+**This section is the single source of truth for how a session's final
+message must be formatted.** It exists because past sessions gave this
+in inconsistent shapes (separate blocks per repo, missing push steps,
+wrong casing) and the human had to ask for it to be fixed. This
+section, or an identical copy of it, must exist in all three repos'
+handover files — if you edit it here, copy the same edit into
+Mavins-web's `handover.md` and Velune's `HANDOVER_CAMPAIGN.md` in the
+same session, the same rule this project already applies to the
+"Sibling repos" block.
+
+**The rule:** whenever a session finishes work — in one repo or more
+than one — the final message must end with **one single,
+copy-pasteable, `&&`-chained command line**, covering every repo
+touched this session and nothing else. Never separate command blocks
+per repo. Never prose interleaved between repos. Never a bare `git am`
++ `git push` with no `cd`, and never omit the `git push` "because it
+was already shown once." One line, chained straight through:
+
+```
+cd ~/<repo-1-local-dir> && git am ~/storage/downloads/<repo-1-slug>-<description>.patch && git push origin main && cd ~/<repo-2-local-dir> && git am ~/storage/downloads/<repo-2-slug>-<description>.patch && git push origin main
+```
+
+Extend with more `&& cd ~/<repo> && git am ... && git push ...`
+segments for however many repos were actually touched. If only one
+repo was touched, the chain is just that one repo's three-command
+segment — still exactly this shape, not a shorter/different one.
+
+**Filling it in — fixed rules, don't improvise per session:**
+
+1. **Patch filenames are always `<repo-slug>-<short-description>.patch`**
+   — all-lowercase, hyphenated. The three fixed slugs for this project:
+   - `mavins-web`
+   - `b-pay-backend`
+   - `velune`
+
+   Use these exact slugs regardless of that repo's actual local folder
+   casing (below) or the GitHub repo's own casing — the slug is a
+   filename label only, so the human can tell at a glance which patch
+   is which when several are sitting in Downloads at once, and so
+   every session reuses the same three names instead of inventing new
+   ones. `<short-description>` is a few hyphenated words for what the
+   patch does (e.g. `handover-nav`, `task-14-geo-currency`) — same
+   spirit as this project's existing `NNNN-short-description.patch`
+   convention, just without the number prefix, since the repo-slug
+   prefix now does that job (unambiguous which-repo-which-patch even
+   with several in Downloads at once, without needing sequential
+   numbers that could collide across three repos' independent
+   sessions).
+
+2. **The `cd` target uses that specific repo's real local folder name
+   and casing — confirmed, not guessed, and NOT always the same as the
+   slug above or the GitHub repo name:**
+   - Mavins-web → `cd ~/mavins-web` (lowercase; the GitHub repo itself
+     is `Zapier-codes/Mavins-web`, capitalized — the local clone is
+     not)
+   - B-Pay-backend → `cd ~/B-PAY-backend` (matches GitHub repo casing
+     exactly)
+   - Velune → `cd ~/Velune` (matches GitHub repo casing exactly)
+
+   If a fourth repo ever joins this project, confirm its real local
+   folder name with the human once (don't assume it matches the GitHub
+   name), then add it to this list in all three files' copies of this
+   section.
+
+3. **Every repo segment ends with its own `git push origin main`**
+   immediately after its own `git am` — never batch every `git am`
+   first and push once at the end; if one repo's `git am` fails
+   partway through a chain, the `&&` chain stops there and repos
+   later in the line correctly never run, which is the whole reason
+   each push sits right after its own `git am` rather than all pushes
+   at the end.
+4. **All three repos currently push the same way** — `git push origin
+   main`, confirmed for all three as of this note (B-Pay-backend's
+   push still auto-joins its existing open PR #2 against upstream, see
+   "Pull request workflow" below — that happens automatically on
+   push, no extra command). If any repo's push mechanics ever change
+   (e.g. a repo moves off a direct-to-main flow), update this section
+   and that repo's own "Sibling repos" entry in the same commit — don't
+   let them drift apart.
+5. **Nothing goes between the repos in the chain, and nothing goes
+   after it.** Prose explaining what changed in each repo belongs
+   *before* this command block in the same message, not interleaved
+   with it or appended after it.
+6. **This format applies even for a single-repo session.** A session
+   that only touched one repo still ends with this exact one-line
+   `cd && git am && git push` shape (just a shorter chain) — not a
+   different, shorter format "because it's only one repo." Consistency
+   for the human is the entire point of this section existing.
+
+---
+
 ## How every session works
 
 1. **Pull latest first.** `git status --short` and `git log --oneline -5`
@@ -231,30 +324,13 @@ and jump on its own.
    project history) — always do it, it takes seconds.
 9. **Present the file** with the `present_files` tool so the human can
    see and download it.
-10. **Tell the human the exact commands to run**, every time, verbatim —
-   just `git am` + `git push origin main`, **no `gh pr create` line
-   anymore** (see "Pull request workflow" section below — PR #2 is
-   already open and reused for every session from here on; do not
-   have the human run `gh pr create` again, it will just fail with
-   "a pull request ... already exists" since one already covers this
-   exact branch pair). **This step's exact form assumes the task was
-   B-Pay-backend's own — if the task actually belonged to Mavins-web or
-   Velune, use that other repo's own hand-off form instead (its own
-   `cd`, its own push mechanics, possibly no PR step at all — see "This
-   is a 3-repo project" near the top of this file), not this one
-   verbatim:**
-   ```
-   git am ~/storage/downloads/NNNN-short-description.patch
-   git push origin main
-   ```
-   (Termux's shared Downloads folder — confirmed earlier in this
-   project as `~/storage/downloads`, lowercase, after
-   `termux-setup-storage` has been run once. If a session ever gets a
-   "no such file" report back, the first thing to check is exact
-   case/spelling of that path, not the patch itself. Pushing to
-   `origin/main` automatically adds the new commit to PR #2 — GitHub
-   does this on its own for any open PR on that branch pair, no extra
-   command needed.)
+10. **Tell the human the exact commands to run, using the "Unified
+   hand-off command format" section near the top of this file —
+   verbatim, every time.** That section is now the single source of
+   truth for this (**no `gh pr create` line ever** — see "Pull request
+   workflow" below; PR #2 is already open and reused automatically on
+   every push). Do not write a one-off command block that skips that
+   section's format, even for a single-repo session.
 11. **Check the box** for the task you just did in this file as soon
     as the commit is confirmed **pushed** to `origin/main` (which
     auto-joins PR #2 — see below) — do NOT wait for the owner
