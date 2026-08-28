@@ -3,64 +3,69 @@
 > **▶ START HERE — read this box only, then go straight to work. Skip
 > everything else below unless you get stuck.**
 >
-> **Next task in THIS repo: none currently unblocked in code.** Task
-> 41 (central Korapay webhook gateway) is now **built** —
-> `webhookGateway.js`, wired into `routes.js`'s Korapay handler and
+> **Next task in THIS repo: none currently unblocked in code —
+> unchanged.** Task 41 (central Korapay webhook gateway) is **built**
+> — `webhookGateway.js`, wired into `routes.js`'s Korapay handler and
 > `index.js`'s retry sweep, verified via `node --check` + standalone
 > functional/signature smoke tests. **This backend's no-database
-> architecture is now a confirmed, permanent decision, not an open
+> architecture is a confirmed, permanent decision, not an open
 > question** — product owner confirmed: every app using this as its
 > canonical payment gateway already has its own database, so this
 > backend verifies Korapay's signature once and forwards, and each
 > app's own edge function owns durable recording into its own DB. The
 > gateway's in-memory event store is the correct final shape for that,
-> not a stopgap awaiting a real database. **What's left is not code
-> here, it's the product owner + a follow-up task in mavins-web
-> (already created there as Task 42):**
-> 1. Set `MAVW_WEBHOOK_URL` + `MAVW_WEBHOOK_FORWARD_SECRET` in Render's
->    dashboard (real values, not placeholders) — nothing forwards
->    until this is done.
-> 2. Mavins-web's Task 42 (already exists there) swaps
->    `korapay-webhook`'s signature verification to this gateway's
->    internal one — itself blocked on point 1 and point 3 both being
->    done first, see that task's own "Blocked on" list.
-> 3. Only after both of those: re-point Korapay's dashboard webhook
->    URL at this backend's `/api/webhooks/korapay`.
+> not a stopgap awaiting a real database.
 >
-> See Task 41's own entry below for the full write-up. "Korapay only"
-> focus is still active otherwise (see "Current focus" section below)
-> — everything else Korapay-eligible in this repo's own queue is done.
-> Tasks 17–24 that used to live in this file's queue have been
-> **migrated to Mavins-web's own `handover.md` as Tasks 28–33** — this
-> repo's copies below are historical only, kept for context, not to be
-> worked from directly anymore. This repo's Task 16 entry above also
-> now carries a companion-change note for Mavins-web's Task 30
-> (forwarding `channels`/`default_channel`) — see that note for detail.
+> **The three-step gateway rollout this box used to track is now
+> FULLY DONE, not just code-complete — confirmed by the product
+> owner:** (1) `MAVW_WEBHOOK_URL`/`MAVW_WEBHOOK_FORWARD_SECRET` set on
+> Render's dashboard, (2) Mavins-web's Task 42 swapped
+> `korapay-webhook`'s signature verification to this gateway's
+> internal one AND that Edge Function has been redeployed (the
+> `supabase functions deploy` step — confirmed run, not just the code
+> merged), (3) Korapay's own dashboard webhook URL re-pointed at this
+> backend. The live webhook chain (Korapay → this gateway →
+> Mavins-web's Edge Function) is now genuinely end-to-end live, not
+> pending a deploy step. See Task 41's entry below for the original
+> write-up and Mavins-web's own Task 42 entry for its deploy
+> confirmation note.
+>
+> "Korapay only" focus is still active otherwise (see "Current focus"
+> section below) — everything else Korapay-eligible in this repo's own
+> queue is done. Tasks 17–24 that used to live in this file's queue
+> have been **migrated to Mavins-web's own `handover.md` as Tasks
+> 28–33** — this repo's copies below are historical only, kept for
+> context, not to be worked from directly anymore. This repo's Task 16
+> entry above also now carries a companion-change note for Mavins-web's
+> Task 30 (forwarding `channels`/`default_channel`) — see that note for
+> detail.
 >
 > **Full cross-repo status, as of this note:**
-> - **B-Pay-backend** (this repo) — next: **not code — see points 1–3
->   above, all product-owner/dashboard steps**
-> - **Mavins-web** — next: **check that repo's own `handover.md` top
->   box directly** — it was mid-update on several other threads
->   (fee-rate, refunds, Task 33/36/37 audits) as of this repo's last
->   sync and may have moved on since; also needs a new task for point
->   2 above, which doesn't exist there yet as of this note.
+> - **B-Pay-backend** (this repo) — next: **still no code task.**
+>   Genuinely idle until new provider API keys arrive (unblocks the
+>   "Current focus: Korapay only" tasks below) or a new task is
+>   assigned.
+> - **Mavins-web** — next: **Task 33 Part 2 (wallet-crediting)** — now
+>   unambiguously the real next task, confirmed by that repo's own top
+>   box: the entire gateway chain (Tasks 33 Part 1b → 41 → 42) was
+>   built specifically to unblock this, and every prerequisite is now
+>   done. Task 40 there gives the exact fee-arithmetic rule to follow
+>   (Edge Function computes the 5% deposit deduction and hands the RPC
+>   an already-net number; the RPC does no math). Check that repo's own
+>   top box directly before starting in case it's moved on since this
+>   note was written.
 > - **Velune** — next: **see `HANDOVER_CAMPAIGN.md` → "8. Not done /
 >   open"** in that repo (`Zapier-codes/Velune`). No numbered task
 >   queue there — different convention, established by that repo's own
 >   sessions. Current real blocker: no live Supabase credentials wired
->   in.
+>   in — unchanged, still open.
 >
 > **A session does not need to ask permission before cloning another
 > repo or switching context between the three** — if the true next
-> task lives elsewhere, just clone it and go. Right now, though, **all
-> three repos are genuinely blocked or done for the moment**: this repo
-> on API keys, Mavins-web on deploy feedback, Velune on Supabase
-> credentials. There is currently no unblocked task in any of the three
-> repos — the next session's real first move is checking whether any of
-> those three blockers has been lifted since this note was written
-> (new API keys arrived, deploy feedback came back, Supabase creds
-> wired in), not picking a task to start coding.
+> task lives elsewhere, just clone it and go. Right now that means:
+> **the real next task is in Mavins-web, not here** — a session
+> starting in this repo should clone Mavins-web and work Task 33 Part 2
+> there, not look for something to do in B-Pay-backend's own queue.
 >
 > **Every session must update this box before ending** — whatever you
 > just finished, update "Next task" here (and the matching box in
