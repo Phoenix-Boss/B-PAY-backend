@@ -285,12 +285,26 @@ export function sanitizePhone(phone) {
 // have confirmed lists as of Task 10 (Korapay-focus partial) — JuicyWay
 // and Payscribe are deliberately omitted rather than guessed; see
 // getSupportedCurrencies() below and handover.md's Task 10 note.
+//
+// Korapay's list cross-checked against Mavins-web's reconciled
+// currency source of truth (Task 9b, 2026-08-27): Mavins-web's Task 29
+// produced `src/lib/currency/korapayDccCurrency.ts`, which independently
+// derives its own Korapay-eligible currency set FROM this same Task 7
+// research (that file's own doc comment cites "B-Pay-backend's
+// handover.md, Task 7" as its source) — so this is confirming the two
+// repos agree, not introducing a second independent source. Both lists
+// are identical: NGN, GHS, KES, ZAR, USD, XAF, XOF, EGP, TZS. No values
+// changed here as a result — see handover.md's Task 9b note for the
+// full cross-check detail, including the separate (and real, but
+// out-of-scope-for-this-list) finding that only 8 of Mavins-web's 25
+// target countries can actually route through Korapay DCC today.
 const CONFIRMED_PROVIDER_CURRENCIES = {
   // paystack.com developer docs, corroborated by multiple integration
   // guides (Chargebee, Zoho, mctaba.com).
   paystack: ['NGN', 'GHS', 'ZAR', 'KES', 'USD'],
   // developers.korapay.com/docs/accept-payments +
-  // /docs/payout-via-api (both primary/official).
+  // /docs/payout-via-api (both primary/official). Cross-checked against
+  // Mavins-web's reconciled list, Task 9b — see comment above.
   korapay: ['NGN', 'GHS', 'KES', 'ZAR', 'USD', 'XAF', 'XOF', 'EGP', 'TZS'],
 };
 

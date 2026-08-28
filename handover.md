@@ -3,10 +3,13 @@
 > **▶ START HERE — read this box only, then go straight to work. Skip
 > everything else below unless you get stuck.**
 >
-> **Next task in THIS repo: none currently unblocked.** "Korapay only"
-> focus is active (see "Current focus" section below) — everything
-> Korapay-eligible in this repo's own queue is done. Tasks 17–24 that
-> used to live in this file's queue have been **migrated to
+> **Next task in THIS repo: none currently unblocked.** Task 9b (pull
+> the real currency list from Mavins-web) is now done as of 2026-08-27
+> — turned out to be a confirmation, not a correction, since Korapay's
+> list already matched Mavins-web's reconciled source exactly. "Korapay
+> only" focus is still active (see "Current focus" section below) —
+> everything Korapay-eligible in this repo's own queue is done. Tasks
+> 17–24 that used to live in this file's queue have been **migrated to
 > Mavins-web's own `handover.md` as Tasks 28–33** — this repo's copies
 > below are historical only, kept for context, not to be worked from
 > directly anymore. This repo's Task 16 entry above also now carries a
@@ -16,12 +19,12 @@
 > **Full cross-repo status, as of this note:**
 > - **B-Pay-backend** (this repo) — next: **none currently
 >   unblocked** (see above)
-> - **Mavins-web** — next: **check that repo's own `handover.md` top
->   box** — Task 30 was in progress as of this note (frontend geo→
->   channel routing; this repo's own forwarding-side companion change
->   is already done, see Task 16's note above) and may be finished,
->   partially finished, or need continuation depending on when this is
->   read next.
+> - **Mavins-web** — next: **hold, awaiting deploy feedback on Task 33
+>   Part 1** (commit `37e1eea` is done in code but not yet
+>   deployed/tested — the project owner is deploying via Supabase CLI
+>   from Termux and will report back; check that repo's own
+>   `handover.md` top box for whatever the report said before doing
+>   anything there).
 > - **Velune** — next: **see `HANDOVER_CAMPAIGN.md` → "8. Not done /
 >   open"** in that repo (`Zapier-codes/Velune`). No numbered task
 >   queue there — different convention, established by that repo's own
@@ -30,8 +33,14 @@
 >
 > **A session does not need to ask permission before cloning another
 > repo or switching context between the three** — if the true next
-> task lives elsewhere (it does right now — see above), just clone it
-> and go.
+> task lives elsewhere, just clone it and go. Right now, though, **all
+> three repos are genuinely blocked or done for the moment**: this repo
+> on API keys, Mavins-web on deploy feedback, Velune on Supabase
+> credentials. There is currently no unblocked task in any of the three
+> repos — the next session's real first move is checking whether any of
+> those three blockers has been lifted since this note was written
+> (new API keys arrived, deploy feedback came back, Supabase creds
+> wired in), not picking a task to start coding.
 >
 > **Every session must update this box before ending** — whatever you
 > just finished, update "Next task" here (and the matching box in
@@ -1131,7 +1140,7 @@ currency-list-expansion clause doesn't actually block calling it
 complete — that's a scope call for the project owner, not this
 session, to make.
 
-### Task 9b — Pull the real currency list into `getAmountFormat` from Mavins-web [ ]
+### Task 9b — Pull the real currency list into `getAmountFormat` from Mavins-web [x]
 Split off from Task 9 above (see its note) rather than left half-done
 in the same task. Depends on **Mavins-web's currency-list
 reconciliation** (this file's own Task 18, under "Cross-repo
@@ -1142,28 +1151,44 @@ check that entry's current state before starting this one; if it isn't
 done yet, this task isn't ready either, skip it same as any other
 blocked task.
 
-**Checked this session — still blocked, box stays unchecked:** went to
-start this task, which meant checking on the reconciliation work it
-depends on first (per its own instruction above). Cloned Mavins-web and
-confirmed directly that the reconciliation has **not** happened —
-`TARGET_COUNTRIES` is now 25 entries (grown via Mavins-web's own Task
-23, a different task) but `COUNTRY_CURRENCY` is still the old 20-entry
-list, and the two now overlap on only 12 codes. Full detail moved to
-this file's Task 18 entry below (under "Cross-repo continuation") rather
-than duplicated here, including the finding that Task 18 was never
-actually added to Mavins-web's own task queue, so nothing is currently
-set up to pick it up. No code touched this session — this was a
-dependency check, not an implementation attempt, per the task's own
-"skip it same as any other blocked task" instruction. Once there's a
-single reconciled country/currency list on the Mavins-web side, replace
-the hardcoded `supported` arrays inside `getAmountFormat`'s Paystack/
-Korapay cases (and whichever of JuicyWay/Payscribe have confirmed rules
-by then, if any) in `utils/helpers.js` with values derived from — or at
-minimum cross-checked against — that real list, so this file stops
-hardcoding a currency list Mavins-web disagrees with. If a currency
-shows up on Mavins-web's list that a provider's own docs don't support,
-that's a real gap to flag back to the project owner, not something to
-silently paper over here.
+**Was blocked, confirmed unblocked and completed this session
+(2026-08-27):** Mavins-web's own handover.md top box reported "Task
+9b is now unblocked — Task 29's reconciled
+`src/lib/currency/countryCurrency.ts` is the real currency list that
+task needed to pull into `getAmountFormat`." Cloned Mavins-web fresh
+and read that file plus its companion
+`src/lib/currency/korapayDccCurrency.ts` directly to verify rather than
+trust the pointer alone. Finding: `korapayDccCurrency.ts`'s own doc
+comment already cites this repo's Task 7 research as *its* source
+("B-Pay-backend's handover.md, Task 7") — so the two repos' Korapay
+currency lists were derived from the same original research, not two
+independently-arrived-at lists that happened to need reconciling.
+Cross-checked the actual values anyway rather than assuming the
+citation meant they'd stayed in sync: both list exactly `NGN, GHS,
+KES, ZAR, USD, XAF, XOF, EGP, TZS` — identical, no drift. **No values
+changed in `utils/helpers.js`'s `CONFIRMED_PROVIDER_CURRENCIES` as a
+result** — this task turned out to be a confirmation, not a
+correction. Updated that constant's comment in `utils/helpers.js` to
+record the cross-check (so a future session doesn't have to re-derive
+that these two repos agree) rather than leave the values unchanged
+with no trace that this check happened.
+**Related finding, noted but correctly out of scope for this specific
+list:** Mavins-web's `countryCurrency.ts` also revealed that of its 25
+target countries, only 8 (NG, GH, KE, ZA, EG, TZ, CI, SN) can actually
+be charged via Korapay's Dynamic Currency Conversion today — the other
+17 get a display-only currency estimate but are still charged in
+NGN/USD. This is a real, already-flagged gap on the Mavins-web side
+(that repo's own file says closing it means either Korapay adding DCC
+support for more currencies, or a second payment provider for those
+markets — see its Task 30) — it doesn't change anything about *this*
+repo's `CONFIRMED_PROVIDER_CURRENCIES`, which is about what currencies
+Korapay's API will accept at all, not which countries get DCC. Noted
+here only so a future session doesn't rediscover it from scratch.
+Verified: `node --check` on `utils/helpers.js`, `routes.js`,
+`providers/korapay.js`, `providers/paystack.js` (all files that import
+from `helpers.js`), plus ran `getSupportedCurrencies('korapay')` and
+`getSupportedCurrencies('paystack')` directly to confirm the returned
+arrays are unchanged and correct.
 
 ### Task 10 — Currency/country/method-aware provider routing [ ]
 Replace `ROUTING_RULES`'s abstract `action` string with real routing:
