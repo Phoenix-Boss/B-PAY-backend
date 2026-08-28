@@ -42,6 +42,25 @@ export class Korapay {
       payload.settlement_currency = data.settlement_currency;
     }
 
+    // Payment method preference (Task 30, Mavins-web companion): only
+    // forwarded when the caller supplies `channels` -- an array of
+    // Korapay channel strings (bank_transfer, card, pay_with_bank,
+    // mobile_money -- confirmed against
+    // developers.korapay.com/docs/checkout-redirect's own parameter
+    // table). Omitted entirely otherwise, which leaves Korapay's own
+    // default channel-selection behavior untouched (same "don't guess,
+    // let the provider decide" principle as the currency-validation
+    // work in Task 10). `default_channel` only makes sense alongside
+    // `channels` per Korapay's own docs ("must also be specified in
+    // the channels parameter"), so it's dropped if `channels` wasn't
+    // also provided, rather than sent alone and possibly rejected.
+    if (Array.isArray(data.channels) && data.channels.length > 0) {
+      payload.channels = data.channels;
+      if (data.default_channel) {
+        payload.default_channel = data.default_channel;
+      }
+    }
+
     log(`Korapay Payment Request: ${formatPayload(payload)}`);
 
     const result = await handleApiCall(async () => {

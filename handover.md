@@ -9,13 +9,19 @@
 > used to live in this file's queue have been **migrated to
 > Mavins-web's own `handover.md` as Tasks 28–33** — this repo's copies
 > below are historical only, kept for context, not to be worked from
-> directly anymore.
+> directly anymore. This repo's Task 16 entry above also now carries a
+> companion-change note for Mavins-web's Task 30 (forwarding
+> `channels`/`default_channel`) — see that note for detail.
 >
 > **Full cross-repo status, as of this note:**
 > - **B-Pay-backend** (this repo) — next: **none currently
 >   unblocked** (see above)
-> - **Mavins-web** — next: **Task 28** (`Zapier-codes/Mavins-web`,
->   local folder `mavins-web` lowercase)
+> - **Mavins-web** — next: **check that repo's own `handover.md` top
+>   box** — Task 30 was in progress as of this note (frontend geo→
+>   channel routing; this repo's own forwarding-side companion change
+>   is already done, see Task 16's note above) and may be finished,
+>   partially finished, or need continuation depending on when this is
+>   read next.
 > - **Velune** — next: **see `HANDOVER_CAMPAIGN.md` → "8. Not done /
 >   open"** in that repo (`Zapier-codes/Velune`). No numbered task
 >   queue there — different convention, established by that repo's own
@@ -1598,6 +1604,34 @@ regardless of how correct this code is. Ties into this repo's own
 Task 14 (blocked on real sandbox keys) for actually exercising this
 end-to-end. Verified: `node --check routes.js` and `node --check
 providers/korapay.js` both pass.
+
+**Companion change, same pattern, different task (added later session):
+Mavins-web's Task 30 ("Route currency + payment method by geo")
+needed this repo to forward Korapay's `channels`/`default_channel`
+checkout params the same way `payment_currency`/`settlement_currency`
+already were above.** `routes.js`'s `POST /pay` destructure and
+`paymentData` object now also include `channels`/`default_channel`
+from `req.body`, forwarded unchanged. `providers/korapay.js`'s
+`processPayment` now attaches `payload.channels`/`payload.default_channel`
+to the actual Korapay API call, but only when `data.channels` is a
+non-empty array — `default_channel` is dropped if `channels` wasn't
+also supplied, matching Korapay's own docs ("the default channel must
+also be specified in the channels parameter"). Confirmed directly
+against developers.korapay.com/docs/checkout-redirect's own parameter
+table for the four valid channel string values (`bank_transfer`,
+`card`, `pay_with_bank`, `mobile_money`) — the actual country→channel
+routing logic itself lives in Mavins-web's `korapayChannels.ts`, not
+here; this repo's job is only to forward whatever the caller sends,
+same "don't guess, let the caller/provider decide" principle as the
+DCC fields. Verified: `node --check routes.js` and
+`node --check providers/korapay.js` both pass; a throwaway `node -e`
+script (deleted after) exercised the forwarding logic against five
+cases — channels+default present, channels-only, default-without-
+channels (correctly dropped), neither present, and an empty channels
+array (correctly treated as absent) — all five correct. See
+Mavins-web's own `handover.md`, Task 30, for the frontend routing
+logic and the full write-up of why South Africa (ZA/EFT) was
+deliberately left unmapped rather than guessed.
 
 > **Tasks 17–24 below are historical.** They've been migrated into
 > Mavins-web's own `handover.md` as Tasks 28–33 (see the box at the

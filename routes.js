@@ -323,7 +323,7 @@ const webhookHandlers = {
 // POST /api/pay
 router.post('/pay', async (req, res) => {
   try {
-    const { action, provider, amount, customer, currency, reference, payment_currency, settlement_currency } = req.body;
+    const { action, provider, amount, customer, currency, reference, payment_currency, settlement_currency, channels, default_channel } = req.body;
 
     log(`Payment Request Received: ${formatPayload(req.body)}`);
 
@@ -387,6 +387,16 @@ router.post('/pay', async (req, res) => {
       // conversion, which is still the default for every other provider.
       payment_currency,
       settlement_currency,
+      // Task 30 (Mavins-web) companion: Korapay-specific channel
+      // preference -- see developers.korapay.com/docs/checkout-redirect's
+      // `channels`/`default_channel` params. Mirrors the
+      // payment_currency/settlement_currency pattern immediately above
+      // (optional, forwarded as-is, provider decides what to do with
+      // them -- see providers/korapay.js for the Korapay-specific
+      // handling). Harmless no-op for every other provider today since
+      // none of their processPayment() implementations read these keys.
+      channels,
+      default_channel,
     };
 
     const result = await providerInstance.processPayment(paymentData);
