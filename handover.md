@@ -7,20 +7,25 @@
 > 41 (central Korapay webhook gateway) is now **built** —
 > `webhookGateway.js`, wired into `routes.js`'s Korapay handler and
 > `index.js`'s retry sweep, verified via `node --check` + standalone
-> functional/signature smoke tests. **What's left is not code, it's
-> the product owner + a follow-up task in a different repo:**
+> functional/signature smoke tests. **This backend's no-database
+> architecture is now a confirmed, permanent decision, not an open
+> question** — product owner confirmed: every app using this as its
+> canonical payment gateway already has its own database, so this
+> backend verifies Korapay's signature once and forwards, and each
+> app's own edge function owns durable recording into its own DB. The
+> gateway's in-memory event store is the correct final shape for that,
+> not a stopgap awaiting a real database. **What's left is not code
+> here, it's the product owner + a follow-up task in mavins-web
+> (already created there as Task 42):**
 > 1. Set `MAVW_WEBHOOK_URL` + `MAVW_WEBHOOK_FORWARD_SECRET` in Render's
 >    dashboard (real values, not placeholders) — nothing forwards
 >    until this is done.
-> 2. Mavins-web needs its own follow-up task (not yet created there)
->    to swap `korapay-webhook`'s signature verification to this
->    gateway's internal one.
+> 2. Mavins-web's Task 42 (already exists there) swaps
+>    `korapay-webhook`'s signature verification to this gateway's
+>    internal one — itself blocked on point 1 and point 3 both being
+>    done first, see that task's own "Blocked on" list.
 > 3. Only after both of those: re-point Korapay's dashboard webhook
 >    URL at this backend's `/api/webhooks/korapay`.
-> 4. A real, still-open decision: this repo has no database, so the
->    gateway's event store is in-memory only (wiped on restart/
->    redeploy) — same unresolved fork Task 12 hit and left open. Needs
->    the product owner's call, not a guess.
 >
 > See Task 41's own entry below for the full write-up. "Korapay only"
 > focus is still active otherwise (see "Current focus" section below)
@@ -33,9 +38,8 @@
 > (forwarding `channels`/`default_channel`) — see that note for detail.
 >
 > **Full cross-repo status, as of this note:**
-> - **B-Pay-backend** (this repo) — next: **not code — see points 1–4
->   above; Mavins-web needs to create its own follow-up task for
->   point 2**
+> - **B-Pay-backend** (this repo) — next: **not code — see points 1–3
+>   above, all product-owner/dashboard steps**
 > - **Mavins-web** — next: **check that repo's own `handover.md` top
 >   box directly** — it was mid-update on several other threads
 >   (fee-rate, refunds, Task 33/36/37 audits) as of this repo's last
@@ -656,6 +660,20 @@ format, and forward it as-is to the provider. The only thing that changed
 from this decision's first draft is **who** that caller is (the Supabase
 Edge Function, not the app) — not what this backend itself does with the
 reference.
+
+**Addendum, generalized for Task 41's multi-tenant gateway — product
+owner confirmed directly, same principle broadened beyond mavins-web
+specifically:** this backend gets **no database, ever, structurally**
+— not just for mavins-web's idempotency, but as a permanent
+architectural rule for every app that uses this backend as its
+canonical payment gateway. Every such app already has its own
+database; this backend's job stops at verifying Korapay's signature
+once and forwarding the event to whichever app owns it (Task 41's
+`webhookGateway.js`), and durable recording is each app's own
+responsibility via its own edge function receiving that forward. See
+Task 41's own entry for the full write-up — this addendum just
+confirms it's the same "no DB here" principle as this decision above,
+now stated as a standing rule rather than a per-task conclusion.
 
 ### Decision 2 — Wallet crediting logic (Supabase/Mavins-web side, not this backend — noted here for continuity)
 Once the Supabase Edge Function confirms a webhook, Supabase computes the
@@ -2007,19 +2025,22 @@ app's own reference prefix (the only tenant so far): `MAVW-`.
   an already-recorded event returns the existing record instead of
   forwarding a second time — confirmed directly via a duplicate-call
   test.
-- **Persist-then-forward, with a real, explicitly-flagged gap:** the
-  event store is **in-memory only** (a `Map`), not backed by any
-  database — this repo has never had one (see Task 12 above, which hit
-  the exact same fork and left it as an explicit open decision rather
-  than guessing at adding one; this task hits it again and makes the
-  same call). Durable for the life of the running process — a
-  downstream app being briefly unreachable gets retried correctly —
-  but **wiped on every restart/redeploy**, which is a real gap against
-  "persist-then-forward" durability, not silently papered over.
-  **Needs the same kind of decision Task 12 asked for and never got**:
-  add a database here (which one?), or reuse Mavins-web's existing
-  Supabase project instead, or something else — flagging for the
-  product owner rather than guessing, same rule as Task 12.
+- **Persist-then-forward, in-memory by design — architecture decision
+  now confirmed, this is not a gap:** the event store is **in-memory
+  only** (a `Map`), not backed by any database. **Product owner has
+  confirmed this backend gets no database, ever, structurally** — every
+  app using this as its canonical payment gateway already has its own
+  database; this backend's job stops at verify-once + forward, and
+  durable recording is each app's own responsibility via its own edge
+  function (see Mavins-web's Task 42: its `korapay-webhook` receives
+  the forward and records into its own Supabase). This resolves the
+  question Task 12 left open for this same fork — not "which DB", but
+  "no DB here, period, by design." In-memory retry is durable for the
+  life of the running process (a downstream app being briefly
+  unreachable gets retried correctly within that window); an event
+  lost to a restart before both this gateway's retry sweep and
+  Korapay's own webhook-retry succeed is an accepted, deliberate
+  tradeoff for staying stateless, not an oversight.
 - **Retry sweep** — `index.js` now calls `retryFailedEvents()` every
   60s (same `setInterval` pattern as the existing outbound-IP monitor
   in that file), fixed backoff schedule (30s → 2min → 10min → 30min →
@@ -2065,8 +2086,10 @@ exists yet, see the next paragraph.
    and 2 above are both done — repointing first would mean Korapay
    webhooks arrive at a gateway with nothing configured to receive
    them downstream yet.
-4. **The persistence-durability decision flagged above** — open,
-   needs the product owner, not guessed at here.
+
+(Point 4, the persistence-durability question, is now resolved — see
+the "Persist-then-forward" bullet above. No database, ever, by design;
+nothing further to decide there.)
 
 ---
 

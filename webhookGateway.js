@@ -17,20 +17,32 @@ import { log } from './utils/helpers.js';
 // Task 41): B-Pay-backend is the gateway (not a separate repo), and
 // mavins-web's prefix is `MAVW`.
 //
-// ⚠️ KNOWN, DELIBERATE LIMITATION — read before assuming this is fully
-// durable: this repo has never had a database (see this file's own
-// Task 12, which hit the exact same fork and left it as an explicit
-// open decision for the product owner rather than guessing at adding
-// one). The event store below is **in-memory only** — durable for the
-// life of this process (so a downstream app being briefly down gets
-// retried correctly), but wiped on every restart/redeploy. That's a
-// real gap against the "persist-then-forward" spec in Task 41, not
-// something silently papered over: an event that arrives, then this
-// process restarts before the retry sweep succeeds, is lost. Flagging
-// this explicitly in handover.md as needing the same kind of decision
-// Task 12 asked for (own DB here vs. reuse Mavins-web's Supabase
-// project vs. something else) — do not add a database here without
-// that decision being made first, same rule as Task 12.
+// ✅ ARCHITECTURE DECISION, CONFIRMED BY THE PRODUCT OWNER — this
+// backend gets NO database, ever, by design, not as a temporary gap:
+// every app using this as its canonical payment gateway already has
+// its own database. This backend's job stops at verifying Korapay's
+// signature once and forwarding the event to whichever app owns it —
+// durable recording is each app's own responsibility, via its own
+// edge function receiving the forward and writing to its own DB (see
+// Mavins-web's Task 42: its `korapay-webhook` Edge Function is exactly
+// that receiver, verifying this gateway's internal signature and
+// recording into its own Supabase). This closes the question Task 12
+// left open for the same fork — the answer isn't "add a DB here vs.
+// reuse Mavins-web's," it's "no DB here, structurally, by design."
+//
+// The event store below stays **in-memory only** — not a stopgap
+// awaiting a real database, but the correct, final shape for a
+// stateless fanout gateway: durable for the life of this process (a
+// downstream app being briefly unreachable gets retried correctly
+// within that window), intentionally not durable across a
+// restart/redeploy. The accepted risk this implies — an event that
+// arrives, then this process restarts before both this gateway's own
+// retry sweep AND Korapay's own webhook-retry behavior succeed, is
+// lost — is a deliberate tradeoff for keeping this backend stateless,
+// not an oversight. If that risk ever needs tightening, the fix is
+// each app's own edge function polling Korapay's verify endpoint as a
+// reconciliation backstop (something already true independent of this
+// gateway), not adding persistence here.
 
 // --------------------------------------------------
 // Tenant routing table — env-var driven, one entry per downstream app.

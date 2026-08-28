@@ -125,9 +125,11 @@ app.get('/my-ip', (req, res) => {
 // status (downstream tenant app was briefly unreachable, etc.), on the
 // same interval-based pattern as the outbound-IP monitor above rather
 // than a queue/cron system this repo has no infra for yet. See
-// webhookGateway.js's own file header for the full design + its one
-// known limitation (in-memory event store, not durable across a
-// restart/redeploy).
+// webhookGateway.js's own file header for the full design — this
+// backend is stateless by design (no database, confirmed architecture
+// decision: each tenant app owns its own durable recording via its own
+// edge function), so this in-memory retry window is the correct final
+// shape here, not a stopgap.
 const GATEWAY_RETRY_INTERVAL = 60 * 1000; // 1 minute
 setInterval(() => {
   retryFailedEvents().catch((err) => log(`Gateway retry sweep threw: ${err.message}`, 'error'));
