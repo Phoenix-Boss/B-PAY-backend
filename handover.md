@@ -1664,7 +1664,7 @@ deliberately left unmapped rather than guessed.
 > reasoning that produced them — don't work from these copies, and
 > don't re-migrate them again.
 
-### Task 17 — Mavins-web: skip fund-wallet/email step for already-authenticated users [ ]
+### Task 17 — Mavins-web: skip fund-wallet/email step for already-authenticated users [x]
 The guest-checkout flow (guest pays without an account → account
 auto-created → session issued, designed earlier in this project) is
 for people who don't have an account yet, so it collects email as part
@@ -1675,6 +1675,20 @@ checkout using the account's already-known email — not re-show the
 insufficient-funds → fund-wallet routing decision is made, branch it
 on auth state, and route logged-in users directly to checkout
 initialization instead.
+
+**Done, in Mavins-web (not this repo) — see that repo's own
+`handover.md` → Task 26** for the full write-up (this task's own text
+above was copied there verbatim as required by the "3-repo project"
+convention, since it only lived here before). Short version: the
+routing gap was entirely in `promote/page.tsx`'s `goFundWallet()`,
+which always sent every user to `/fund-wallet` regardless of auth
+state — `/api/payments/initialize`'s authenticated branch already
+derived the user's own email from their session server-side, so the
+fix only needed to skip the intermediate page/click for logged-in
+users, not touch any server-side email handling. Commit `be3ee34` in
+`mavins-web`, `npx tsc --noEmit` clean, live end-to-end check still
+recommended post-deploy (no sandbox network access to Supabase/Korapay
+from either repo).
 
 ### Task 18 — Mavins-web: reconcile the real country/currency list [ ]
 `TARGET_COUNTRIES` (`src/lib/campaign/geoAffinity.ts`) and
@@ -2052,3 +2066,17 @@ full write-up. Commit `5c1b4d2` on Mavins-web's `main`.
   new Task 8b remains separately open. Verified with `git am` against
   `2eeb4e3` (this session's own prior commit, i.e. `0013` applied) in a
   fresh `/tmp` clone. Requires `0007` through `0013` applied first.
+- `0015-task17-checkbox-crossref.patch` — docs-only, checks off Task 17
+  in this file (implementation itself lives in `mavins-web`, not this
+  repo — see that repo's own `handover.md` → Task 26, commit `be3ee34`
+  there). Records the short version of what was found/fixed here per
+  this project's cross-repo convention, same pattern Task 18's own note
+  already uses. Verified with `git am` against `5c51467` (origin's
+  current HEAD as of this session — several other sessions' commits
+  had landed since this session's own prior B-Pay-backend commit,
+  `6a67a81`/`0014`; pulled latest before making this edit) in a fresh
+  `/tmp` clone. Requires everything already on `main` as of `5c51467`
+  applied first (not just `0007`–`0014` — origin has since diverged
+  ahead of this patch series' own internal numbering; apply this on
+  top of whatever `main` actually has, not a reconstructed `0001`–`0014`
+  chain).
