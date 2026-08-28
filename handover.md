@@ -3,28 +3,44 @@
 > **▶ START HERE — read this box only, then go straight to work. Skip
 > everything else below unless you get stuck.**
 >
-> **Next task in THIS repo: none currently unblocked.** Task 9b (pull
-> the real currency list from Mavins-web) is now done as of 2026-08-27
-> — turned out to be a confirmation, not a correction, since Korapay's
-> list already matched Mavins-web's reconciled source exactly. "Korapay
-> only" focus is still active (see "Current focus" section below) —
-> everything Korapay-eligible in this repo's own queue is done. Tasks
-> 17–24 that used to live in this file's queue have been **migrated to
-> Mavins-web's own `handover.md` as Tasks 28–33** — this repo's copies
-> below are historical only, kept for context, not to be worked from
-> directly anymore. This repo's Task 16 entry above also now carries a
-> companion-change note for Mavins-web's Task 30 (forwarding
-> `channels`/`default_channel`) — see that note for detail.
+> **Next task in THIS repo: none currently unblocked in code.** Task
+> 41 (central Korapay webhook gateway) is now **built** —
+> `webhookGateway.js`, wired into `routes.js`'s Korapay handler and
+> `index.js`'s retry sweep, verified via `node --check` + standalone
+> functional/signature smoke tests. **What's left is not code, it's
+> the product owner + a follow-up task in a different repo:**
+> 1. Set `MAVW_WEBHOOK_URL` + `MAVW_WEBHOOK_FORWARD_SECRET` in Render's
+>    dashboard (real values, not placeholders) — nothing forwards
+>    until this is done.
+> 2. Mavins-web needs its own follow-up task (not yet created there)
+>    to swap `korapay-webhook`'s signature verification to this
+>    gateway's internal one.
+> 3. Only after both of those: re-point Korapay's dashboard webhook
+>    URL at this backend's `/api/webhooks/korapay`.
+> 4. A real, still-open decision: this repo has no database, so the
+>    gateway's event store is in-memory only (wiped on restart/
+>    redeploy) — same unresolved fork Task 12 hit and left open. Needs
+>    the product owner's call, not a guess.
+>
+> See Task 41's own entry below for the full write-up. "Korapay only"
+> focus is still active otherwise (see "Current focus" section below)
+> — everything else Korapay-eligible in this repo's own queue is done.
+> Tasks 17–24 that used to live in this file's queue have been
+> **migrated to Mavins-web's own `handover.md` as Tasks 28–33** — this
+> repo's copies below are historical only, kept for context, not to be
+> worked from directly anymore. This repo's Task 16 entry above also
+> now carries a companion-change note for Mavins-web's Task 30
+> (forwarding `channels`/`default_channel`) — see that note for detail.
 >
 > **Full cross-repo status, as of this note:**
-> - **B-Pay-backend** (this repo) — next: **none currently
->   unblocked** (see above)
-> - **Mavins-web** — next: **hold, awaiting deploy feedback on Task 33
->   Part 1** (commit `37e1eea` is done in code but not yet
->   deployed/tested — the project owner is deploying via Supabase CLI
->   from Termux and will report back; check that repo's own
->   `handover.md` top box for whatever the report said before doing
->   anything there).
+> - **B-Pay-backend** (this repo) — next: **not code — see points 1–4
+>   above; Mavins-web needs to create its own follow-up task for
+>   point 2**
+> - **Mavins-web** — next: **check that repo's own `handover.md` top
+>   box directly** — it was mid-update on several other threads
+>   (fee-rate, refunds, Task 33/36/37 audits) as of this repo's last
+>   sync and may have moved on since; also needs a new task for point
+>   2 above, which doesn't exist there yet as of this note.
 > - **Velune** — next: **see `HANDOVER_CAMPAIGN.md` → "8. Not done /
 >   open"** in that repo (`Zapier-codes/Velune`). No numbered task
 >   queue there — different convention, established by that repo's own
@@ -1948,7 +1964,113 @@ full write-up. Commit `5c1b4d2` on Mavins-web's `main`.
 
 ---
 
-## Patches issued so far (keep this updated so numbering doesn't collide)
+### Task 41 — Central Korapay webhook gateway for multi-tenant apps [x]
+
+**Migrated from Mavins-web's own `handover.md` (that repo's Task 41 —
+same number, kept identical on purpose since this is one task tracked
+in two places by necessity: decisions recorded there, build here).**
+Korapay's dashboard has exactly one webhook-URL slot, account-wide.
+The product owner is building multiple other multi-tenant apps beyond
+Mavins-web, all needing Korapay webhook events — every app registering
+its own URL directly isn't possible, so this backend (already holding
+the Korapay credentials) becomes the one thing Korapay's dashboard
+points at, fanning events out to whichever app actually owns each one.
+
+**Decisions already confirmed by the product owner (recorded in
+Mavins-web's own file, copied here for this repo's own record):**
+Option A — this backend is the gateway, not a separate repo. This
+app's own reference prefix (the only tenant so far): `MAVW-`.
+
+**Built this session — `webhookGateway.js` (new file):**
+- **Routing table**, env-var driven: `TENANT_ROUTES` maps a reference
+  prefix (first segment before `-`, uppercased) to a downstream app's
+  forward URL + its own internal forwarding secret. One entry today
+  (`MAVW` → `MAVW_WEBHOOK_URL` / `MAVW_WEBHOOK_FORWARD_SECRET`, both
+  new env vars — **not yet set in Render's dashboard, that's a manual
+  step for the product owner**, added to `render.yaml` as
+  `sync: false` placeholders same as the existing provider keys).
+  Adding a new tenant later is config-only, no code change.
+- **Korapay's own signature verified exactly once**, unchanged from
+  the existing code (`providers/korapay.js#verifyWebhookSignature`) —
+  this now lives in the gateway path only; downstream apps never see a
+  raw Korapay signature at all, they verify the gateway's own internal
+  one instead (next point).
+- **Internal forwarding signature** — HMAC-SHA256 over the forwarded
+  JSON body, using each tenant's own `forwardSecret` (never Korapay's
+  own secret), sent as `X-Gateway-Signature`. Verified in isolation
+  this session (correct-secret accepts, wrong-secret rejects, tampered
+  payload rejects — all three checked directly, not assumed).
+- **Idempotency** — dedupes on `` `${event}:${data.reference}` ``
+  (Korapay's payload isn't confirmed to carry its own globally unique
+  event id anywhere this codebase has seen; this is the documented
+  fallback from this task's own spec, not a guess). A Korapay retry of
+  an already-recorded event returns the existing record instead of
+  forwarding a second time — confirmed directly via a duplicate-call
+  test.
+- **Persist-then-forward, with a real, explicitly-flagged gap:** the
+  event store is **in-memory only** (a `Map`), not backed by any
+  database — this repo has never had one (see Task 12 above, which hit
+  the exact same fork and left it as an explicit open decision rather
+  than guessing at adding one; this task hits it again and makes the
+  same call). Durable for the life of the running process — a
+  downstream app being briefly unreachable gets retried correctly —
+  but **wiped on every restart/redeploy**, which is a real gap against
+  "persist-then-forward" durability, not silently papered over.
+  **Needs the same kind of decision Task 12 asked for and never got**:
+  add a database here (which one?), or reuse Mavins-web's existing
+  Supabase project instead, or something else — flagging for the
+  product owner rather than guessing, same rule as Task 12.
+- **Retry sweep** — `index.js` now calls `retryFailedEvents()` every
+  60s (same `setInterval` pattern as the existing outbound-IP monitor
+  in that file), fixed backoff schedule (30s → 2min → 10min → 30min →
+  1hr), gives up after 5 attempts and logs loudly once rather than
+  retrying forever or spamming the log every sweep.
+- **`GET /gateway-stats`** (new, unauthenticated, counts only — never
+  raw event payloads, those can carry customer emails/amounts) for
+  quick visibility into the gateway's current in-memory state.
+- `webhookHandlers.korapay` in `routes.js` now calls
+  `handleGatewayEvent(event, data)` after its existing signature check
+  and event-type logging (both unchanged) — the response to Korapay
+  (`{ received: true }`) happens regardless of the forward attempt's
+  own outcome, so a slow/failing downstream tenant never holds up
+  Korapay's own webhook delivery or risks Korapay's retry storm.
+
+**Verified this session:** `node --check` on all three touched files;
+a standalone functional smoke test of `webhookGateway.js` (unroutable
+reference correctly rejected, routable reference attempts a forward
+and records the failure with a correct attempt count, duplicate event
+deduped with no second forward attempt, `getGatewayStats()` reports
+correctly); a standalone signature test (correct secret verifies,
+wrong secret rejects, tampered payload rejects). **Not verified: an
+actual live forward to a real Mavins-web endpoint** — no such endpoint
+exists yet, see the next paragraph.
+
+**Real remaining work, not done here, each belongs somewhere else:**
+1. **The product owner needs to actually set `MAVW_WEBHOOK_URL` and
+   `MAVW_WEBHOOK_FORWARD_SECRET` in Render's dashboard** (this repo's
+   env, not a file in this repo) — a real value + a freshly generated
+   secret, not a placeholder. Nothing forwards successfully until this
+   is done, by design (fails loudly via the retry-sweep's give-up log,
+   not silently).
+2. **Mavins-web's own follow-up, a separate task there (its
+   `korapay-webhook` Edge Function must swap from verifying Korapay's
+   own signature to verifying this gateway's internal one instead,
+   using the same `MAVW_WEBHOOK_FORWARD_SECRET` value set in point 1)
+   — not started, flagging here so whoever picks up Mavins-web next
+   doesn't have to re-derive it from this file.**
+3. **The Korapay dashboard webhook URL itself still needs
+   re-pointing** at this backend's `/api/webhooks/korapay` — that's
+   the actual "go live" step for this whole task, a manual dashboard
+   change for the product owner, not code. Do this only after points 1
+   and 2 above are both done — repointing first would mean Korapay
+   webhooks arrive at a gateway with nothing configured to receive
+   them downstream yet.
+4. **The persistence-durability decision flagged above** — open,
+   needs the product owner, not guessed at here.
+
+---
+
+
 
 - `0001-webhook-route-skeleton.patch` — Task 2 (webhook routing
   skeleton, `routes.js`). Verified to apply cleanly with `git am`

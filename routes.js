@@ -4,6 +4,7 @@ import { Payscribe } from './providers/payscribe.js';
 import { Juicyway } from './providers/juicyway.js';
 import { Korapay } from './providers/korapay.js';
 import { log, formatPayload, generateReference, getSupportedCurrencies, isValidCurrencyCode, isValidEmail, providerRequiresEmail } from './utils/helpers.js';
+import { handleGatewayEvent } from './webhookGateway.js';
 
 const router = express.Router();
 
@@ -264,15 +265,27 @@ const webhookHandlers = {
       case 'transfer.failed':
       case 'refund.success':
       case 'refund.failed':
-        // Per developers.korapay.com/docs/webhooks, `data.status` is
-        // always 'success' or 'failed' regardless of which of these
-        // six event names fired, so this just logs the outcome — no
-        // persistence layer exists yet (see Task 12).
         log(`Korapay ${event}: reference=${data?.reference}, amount=${data?.amount}, currency=${data?.currency}, status=${data?.status}`);
         break;
       default:
         log(`Korapay webhook event '${event}' received, no handler wired yet — logged only`);
     }
+
+    // Task 41 — this is now the single Korapay webhook receiver for
+    // every multi-tenant app (Korapay's dashboard only ever points at
+    // one URL, account-wide). Fan the verified event out to whichever
+    // app's `reference` prefix matches, via webhookGateway.js. This
+    // call is fire-and-forget-with-recording, not fire-and-wait: it
+    // records the event and attempts one immediate forward, but the
+    // response to Korapay below happens regardless of that forward's
+    // outcome — a failed forward gets retried by index.js's periodic
+    // sweep instead of holding Korapay's own webhook delivery hostage
+    // (Korapay has its own retry behavior on non-200, which is exactly
+    // what this is trying to avoid depending on for correctness — see
+    // webhookGateway.js's own file header for the full reasoning,
+    // including its one known limitation: in-memory only, not durable
+    // across a restart/redeploy yet).
+    await handleGatewayEvent(event, data);
 
     return { received: true };
   },
