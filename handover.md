@@ -16,19 +16,36 @@
 > gateway's in-memory event store is the correct final shape for that,
 > not a stopgap awaiting a real database.
 >
-> **The three-step gateway rollout this box used to track is now
-> FULLY DONE, not just code-complete — confirmed by the product
-> owner:** (1) `MAVW_WEBHOOK_URL`/`MAVW_WEBHOOK_FORWARD_SECRET` set on
-> Render's dashboard, (2) Mavins-web's Task 42 swapped
-> `korapay-webhook`'s signature verification to this gateway's
-> internal one AND that Edge Function has been redeployed (the
-> `supabase functions deploy` step — confirmed run, not just the code
-> merged), (3) Korapay's own dashboard webhook URL re-pointed at this
-> backend. The live webhook chain (Korapay → this gateway →
-> Mavins-web's Edge Function) is now genuinely end-to-end live, not
-> pending a deploy step. See Task 41's entry below for the original
-> write-up and Mavins-web's own Task 42 entry for its deploy
-> confirmation note.
+> **Correction, this session — the "FULLY DONE" claim below was
+> premature.** Step 3 (Korapay's dashboard webhook URL) had been set
+> to the **bare domain** (`https://b-pay-backend.onrender.com`), not
+> the actual route (`/api/webhooks/korapay`) — this repo's root path
+> only has a `GET` handler, so every webhook from Korapay was 404ing
+> silently, for every project sharing this one URL slot, the whole
+> time this box claimed the chain was "genuinely end-to-end live."
+> **Now corrected** — the dashboard is updated to the full path as of
+> this session. Recording this prominently because it's exactly the
+> kind of thing this box exists to prevent: a "confirmed done" claim
+> that wasn't actually verified end-to-end (no one had checked
+> `/gateway-stats` or looked for a real recorded event — the
+> confirmation was taken on trust, not evidence). **Before trusting
+> any "confirmed live" claim in this file again, check
+> `/gateway-stats` for a nonzero count, don't just take a prior
+> session's word for it.**
+>
+> **The three-step gateway rollout this box used to track — now
+> actually verified to include the correct URL, not just claimed:**
+> (1) `MAVW_WEBHOOK_URL`/`MAVW_WEBHOOK_FORWARD_SECRET` set on Render's
+> dashboard, (2) Mavins-web's Task 42 swapped `korapay-webhook`'s
+> signature verification to this gateway's internal one AND that Edge
+> Function has been redeployed, (3) Korapay's own dashboard webhook
+> URL re-pointed at this backend's **full webhook path**
+> (`/api/webhooks/korapay`, corrected this session — was previously
+> just the bare domain). **Still not independently confirmed: an
+> actual live event landing in `/gateway-stats`** — the URL is now
+> correct, but no one has checked yet whether a real webhook has
+> actually come through since the correction. Whoever picks this up
+> next should check that before assuming the chain is truly live.
 >
 > "Korapay only" focus is still active otherwise (see "Current focus"
 > section below) — everything else Korapay-eligible in this repo's own
@@ -2072,27 +2089,25 @@ actual live forward to a real Mavins-web endpoint** — no such endpoint
 exists yet, see the next paragraph.
 
 **Real remaining work, not done here, each belongs somewhere else:**
-1. **The product owner needs to actually set `MAVW_WEBHOOK_URL` and
-   `MAVW_WEBHOOK_FORWARD_SECRET` in Render's dashboard** (this repo's
-   env, not a file in this repo) — a real value + a freshly generated
-   secret, not a placeholder. Nothing forwards successfully until this
-   is done, by design (fails loudly via the retry-sweep's give-up log,
-   not silently).
-2. **Mavins-web's own follow-up, a separate task there (its
-   `korapay-webhook` Edge Function must swap from verifying Korapay's
-   own signature to verifying this gateway's internal one instead,
-   using the same `MAVW_WEBHOOK_FORWARD_SECRET` value set in point 1)
-   — not started, flagging here so whoever picks up Mavins-web next
-   doesn't have to re-derive it from this file.**
-3. **The Korapay dashboard webhook URL itself still needs
-   re-pointing** at this backend's `/api/webhooks/korapay` — that's
-   the actual "go live" step for this whole task, a manual dashboard
-   change for the product owner, not code. Do this only after points 1
-   and 2 above are both done — repointing first would mean Korapay
-   webhooks arrive at a gateway with nothing configured to receive
-   them downstream yet.
+1. ~~The product owner needs to actually set `MAVW_WEBHOOK_URL` and
+   `MAVW_WEBHOOK_FORWARD_SECRET` in Render's dashboard~~ — **done.**
+2. ~~Mavins-web's own follow-up (swap `korapay-webhook`'s
+   verification)~~ — **done, see that repo's Task 42.**
+3. ~~The Korapay dashboard webhook URL itself still needs
+   re-pointing~~ — **done, but caught a real mistake along the way:**
+   it was initially set to the **bare domain**
+   (`https://b-pay-backend.onrender.com`) instead of the actual route
+   (`/api/webhooks/korapay`) — this backend's root path only has a
+   `GET` handler, so every webhook 404'd silently for a period before
+   this was caught and corrected. See the correction note at the very
+   top of this file (START HERE box) for the full account — flagging
+   here too since this is exactly the kind of detail a future session
+   skimming past this checklist could otherwise miss. **Still not
+   independently confirmed:** a real event actually landing in
+   `/gateway-stats` since the correction — check that before assuming
+   this is truly resolved, don't just trust this checklist.
 
-(Point 4, the persistence-durability question, is now resolved — see
+(Point 4, the persistence-durability question, is resolved — see
 the "Persist-then-forward" bullet above. No database, ever, by design;
 nothing further to decide there.)
 
