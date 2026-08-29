@@ -3,6 +3,7 @@ import express from 'express';
 import cors from 'cors';
 import routes from './routes.js';
 import { initializeHelpers, getHealthStatus, log } from './utils/helpers.js';
+import { retryFailedEvents, getGatewayStats } from './webhookGateway.js';
 import fetch from 'node-fetch';
 import fs from 'fs';
 
@@ -57,6 +58,8 @@ app.get('/', (req, res) => {
       health: '/health',
       pay: '/api/pay',
       verify: '/api/verify',
+      webhooks: '/api/webhooks/:provider',
+      gatewayStats: '/gateway-stats',
       myIp: '/my-ip'
     },
   });
@@ -113,6 +116,30 @@ app.get('/my-ip', (req, res) => {
     return res.status(503).send("IP not yet fetched. Try again in a few seconds.");
   }
   res.send(`Current Outbound IP: ${currentIP}`);
+});
+
+// ==================================================
+// 🌐 WEBHOOK GATEWAY — RETRY SWEEP (Task 41)
+// ==================================================
+// Re-attempts any Korapay webhook event still sitting in 'failed'
+// status (downstream tenant app was briefly unreachable, etc.), on the
+// same interval-based pattern as the outbound-IP monitor above rather
+// than a queue/cron system this repo has no infra for yet. See
+// webhookGateway.js's own file header for the full design — this
+// backend is stateless by design (no database, confirmed architecture
+// decision: each tenant app owns its own durable recording via its own
+// edge function), so this in-memory retry window is the correct final
+// shape here, not a stopgap.
+const GATEWAY_RETRY_INTERVAL = 60 * 1000; // 1 minute
+setInterval(() => {
+  retryFailedEvents().catch((err) => log(`Gateway retry sweep threw: ${err.message}`, 'error'));
+}, GATEWAY_RETRY_INTERVAL);
+
+// Lightweight visibility into the gateway's in-memory state — counts
+// only, never raw event payloads (those can carry customer emails/
+// amounts, no reason to expose them on an unauthenticated endpoint).
+app.get('/gateway-stats', (req, res) => {
+  res.json(getGatewayStats());
 });
 
 // ==================================================

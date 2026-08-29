@@ -1,5 +1,6 @@
 import fetch from 'node-fetch';
-import { log, handleApiCall, getProviderKey, generateReference, formatPayload, getProviderBaseUrl } from '../utils/helpers.js';
+import crypto from 'crypto';
+import { log, handleApiCall, getProviderKey, generateReference, formatPayload, getProviderBaseUrl, convertAmountForProvider, providerError } from '../utils/helpers.js';
 
 export class Korapay {
   constructor() {
@@ -10,12 +11,18 @@ export class Korapay {
 
   async processPayment(data) {
     const ref = data.reference || generateReference('korapay');
+    // Confirmed (Task 7) Korapay wants base currency units, not
+    // subunits — convertAmountForProvider is a confirmed no-op here,
+    // but routing through it (Task 9, partial) makes that rule
+    // explicit and enforced in code rather than only documented in a
+    // comment, and keeps this call site consistent with Paystack's.
+    const amount = convertAmountForProvider(data.amount, 'korapay', data.currency);
 
     // Korapay's initialize-charge endpoint requires the payer's details
     // nested under a `customer` object -- a flat top-level `email` field
     // is rejected. See https://developers.korapay.com/docs/checkout-redirect
     const payload = {
-      amount: data.amount,
+      amount,
       currency: data.currency,
       reference: ref,
       customer: {
@@ -23,6 +30,36 @@ export class Korapay {
         name: data.customer?.name,
       },
     };
+
+    // Dynamic Currency Conversion (DCC): only attached when the caller
+    // supplies both fields (Korapay requires both together, and both
+    // must be currencies Korapay itself supports). `currency` above
+    // stays what we're charging in; `payment_currency` is shown to the
+    // payer at checkout, `settlement_currency` is what we get paid out
+    // in. See https://developers.korapay.com/docs/dynamic-currency-conversion
+    if (data.payment_currency && data.settlement_currency) {
+      payload.payment_currency = data.payment_currency;
+      payload.settlement_currency = data.settlement_currency;
+    }
+
+    // Payment method preference (Task 30, Mavins-web companion): only
+    // forwarded when the caller supplies `channels` -- an array of
+    // Korapay channel strings (bank_transfer, card, pay_with_bank,
+    // mobile_money -- confirmed against
+    // developers.korapay.com/docs/checkout-redirect's own parameter
+    // table). Omitted entirely otherwise, which leaves Korapay's own
+    // default channel-selection behavior untouched (same "don't guess,
+    // let the provider decide" principle as the currency-validation
+    // work in Task 10). `default_channel` only makes sense alongside
+    // `channels` per Korapay's own docs ("must also be specified in
+    // the channels parameter"), so it's dropped if `channels` wasn't
+    // also provided, rather than sent alone and possibly rejected.
+    if (Array.isArray(data.channels) && data.channels.length > 0) {
+      payload.channels = data.channels;
+      if (data.default_channel) {
+        payload.default_channel = data.default_channel;
+      }
+    }
 
     log(`Korapay Payment Request: ${formatPayload(payload)}`);
 
@@ -42,7 +79,7 @@ export class Korapay {
       const responseData = await response.json();
 
       if (!response.ok || !responseData.status) {
-        throw new Error(responseData.message || 'Korapay payment failed');
+        throw providerError(responseData.message || 'Korapay payment failed');
       }
 
       return responseData;
@@ -74,7 +111,7 @@ export class Korapay {
       const responseData = await response.json();
 
       if (!response.ok || !responseData.status) {
-        throw new Error(responseData.message || 'Korapay verification failed');
+        throw providerError(responseData.message || 'Korapay verification failed');
       }
 
       return responseData;
@@ -82,5 +119,31 @@ export class Korapay {
 
     log(`Korapay Verification Response: ${formatPayload(result)}`);
     return result;
+  }
+
+  // ==================================================
+  // 🔔 WEBHOOK SIGNATURE VERIFICATION
+  // ==================================================
+  // Confirmed directly against developers.korapay.com/docs/webhooks
+  // (2026-08-27 session). Important difference from Paystack: the
+  // `x-korapay-signature` header is a hex-encoded HMAC-SHA256 of
+  // ONLY the `data` object from the payload — NOT the full body like
+  // Paystack. Korapay's own official example hashes
+  // `JSON.stringify(req.body.data)`, so this method takes the full
+  // parsed body and hashes just its `.data` field, matching that
+  // exactly. Like Paystack, this is over the express.json()-parsed-
+  // and-re-serialized body, not raw bytes — Korapay's own official
+  // examples (Node and PHP alike) do the same re-serialization, so
+  // Task 2's raw-body concern doesn't apply here either.
+  verifyWebhookSignature(body, signature) {
+    if (!signature) return false;
+    const hash = crypto
+      .createHmac('sha256', this.secretKey)
+      .update(JSON.stringify(body?.data))
+      .digest('hex');
+    const hashBuffer = Buffer.from(hash, 'utf8');
+    const sigBuffer = Buffer.from(signature, 'utf8');
+    if (hashBuffer.length !== sigBuffer.length) return false;
+    return crypto.timingSafeEqual(hashBuffer, sigBuffer);
   }
 }

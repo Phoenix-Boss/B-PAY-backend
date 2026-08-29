@@ -59,6 +59,29 @@ export class ApiError extends Error {
   }
 }
 
+// Task 13 (error-handling review half — rate limiting deliberately
+// descoped this session, see handover.md's Task 13 note): each
+// provider's processPayment()/verifyTransaction() throws
+// `new Error(responseData.message || '...')` when the provider's own
+// API returns a failure — that message is provider-authored and
+// meant to be shown to the end user (e.g. "Insufficient funds",
+// "Invalid account number"). Wrap those specific throws with
+// providerError() instead of a bare `new Error(...)` to explicitly
+// mark them safe-to-surface. Anything thrown WITHOUT this flag (a
+// network failure inside fetch(), a JSON parse failure on a
+// non-JSON response, a missing API key, an unsupported provider
+// name, etc.) is an internal/operational failure whose raw message
+// was never meant for an external caller — handleApiCall below only
+// passes the flagged messages through verbatim; everything else gets
+// a generic client-facing message while the real detail still goes
+// to the server log line right above it (and to `originalError` on
+// the thrown ApiError, for anything logging that in future).
+export function providerError(message) {
+  const err = new Error(message);
+  err.isProviderMessage = true;
+  return err;
+}
+
 export async function handleApiCall(fn, provider = 'unknown') {
   try {
     log(`🔄 Starting API call for ${provider.toUpperCase()}...`, 'info');
@@ -68,7 +91,10 @@ export async function handleApiCall(fn, provider = 'unknown') {
   } catch (err) {
     const errorMessage = err.message || err.toString();
     log(`❌ API Call Error (${provider.toUpperCase()}): ${errorMessage}`, 'error');
-    throw new ApiError(provider, err.statusCode || 500, `API request failed: ${errorMessage}`, err);
+    const clientMessage = err.isProviderMessage
+      ? errorMessage
+      : `Unable to complete request with ${provider} right now. Please try again shortly.`;
+    throw new ApiError(provider, err.statusCode || 500, `API request failed: ${clientMessage}`, err);
   }
 }
 
@@ -101,7 +127,9 @@ export function getProviderKey(provider, type) {
   if (providerLower === 'juicyway') {
     const key = process.env.JUICYWAY_API_KEY || process.env.JUICYWAY_PUBLIC_KEY || '';
     if (!key) {
-      throw new Error(`API key not found for ${provider}. Check .env file.`);
+      const err = new Error(`API key not found for ${provider}. Check .env file.`);
+      err.isConfigError = true; // Task 13: server misconfiguration, not for the client — see routes.js
+      throw err;
     }
     if (key.length < 10) {
       log(`⚠️ Warning: ${provider} key seems too short`, 'warn');
@@ -134,7 +162,9 @@ export function getProviderKey(provider, type) {
   const key = providerKeys[type];
   
   if (!key) {
-    throw new Error(`API key not found for ${provider} (${type}). Check .env file.`);
+    const err = new Error(`API key not found for ${provider} (${type}). Check .env file.`);
+    err.isConfigError = true; // Task 13: server misconfiguration, not for the client — see routes.js
+    throw err;
   }
   
   if (key.length < 10) {
@@ -142,6 +172,42 @@ export function getProviderKey(provider, type) {
   }
   
   return key;
+}
+
+// ==================================================
+// ✅ REQUEST VALIDATION (Task 11)
+// ==================================================
+// Dependency-free plain-JS validation, per the task's own suggestion
+// ("keep this dependency-free... unless the validation logic gets
+// unwieldy as plain JS" — it hasn't, so no zod added).
+
+const CURRENCY_CODE_REGEX = /^[A-Za-z]{3}$/;
+const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+// Providers whose processPayment() call sites forward customer.email
+// (or a top-level email derived from it) straight to the provider's
+// API with no fallback default — confirmed by reading each provider
+// file directly this session. Paystack and Korapay were already known
+// to require one (per the task description); JuicyWay does too
+// (providers/juicyway.js forwards `data.customer?.email` with no
+// default, same shape as Paystack). Payscribe is deliberately
+// excluded: its processPayment() already defaults to a placeholder
+// email ('customer@example.com') when none is given, so it doesn't
+// actually require one at this validation layer — Payscribe silently
+// accepting a fake email is a separate, pre-existing concern, not
+// something to newly block here.
+const PROVIDERS_REQUIRING_EMAIL = ['paystack', 'korapay', 'juicyway'];
+
+export function isValidCurrencyCode(currency) {
+  return CURRENCY_CODE_REGEX.test(currency || '');
+}
+
+export function isValidEmail(email) {
+  return typeof email === 'string' && EMAIL_REGEX.test(email);
+}
+
+export function providerRequiresEmail(provider) {
+  return PROVIDERS_REQUIRING_EMAIL.includes((provider || '').toLowerCase());
 }
 
 export function validateProviderKeys() {
@@ -194,6 +260,116 @@ export function formatPayload(payload, hideSensitive = true) {
 export function sanitizePhone(phone) {
   if (!phone || phone.length < 4) return '***';
   return '***' + phone.slice(-4);
+}
+
+// ==================================================
+// 💱 PER-PROVIDER AMOUNT-UNIT HANDLING (Task 9, partial)
+// ==================================================
+// Replaces the old blanket toSubUnit()/fromSubUnit() call pattern
+// (single ×100 assumption applied to whichever provider happened to
+// call it) with a per-provider lookup, since amount-unit rules are NOT
+// the same across providers — see handover.md's "Confirmed research
+// findings" section for the primary-source evidence behind each case
+// below. This is a Korapay-focus partial pass on Task 9: only
+// Paystack and Korapay have confirmed rules right now. JuicyWay and
+// Payscribe are still unconfirmed (Payscribe is also blocked on docs;
+// see handover.md), so both throw here rather than silently guessing
+// a multiplier — a wrong guess would either overcharge/undercharge by
+// 100x or send garbage upstream, so "fail loud" is safer than "fail
+// silent" until those two get their own confirmation pass. The
+// currency-list-expansion half of Task 9 (pulling the real list from
+// Mavins-web) is NOT done here — see handover.md's Task 9 note for
+// why that's a separate, still-open piece of work.
+// Currency lists confirmed against primary sources (see handover.md's
+// "Confirmed research findings" section). Only Paystack and Korapay
+// have confirmed lists as of Task 10 (Korapay-focus partial) — JuicyWay
+// and Payscribe are deliberately omitted rather than guessed; see
+// getSupportedCurrencies() below and handover.md's Task 10 note.
+//
+// Korapay's list cross-checked against Mavins-web's reconciled
+// currency source of truth (Task 9b, 2026-08-27): Mavins-web's Task 29
+// produced `src/lib/currency/korapayDccCurrency.ts`, which independently
+// derives its own Korapay-eligible currency set FROM this same Task 7
+// research (that file's own doc comment cites "B-Pay-backend's
+// handover.md, Task 7" as its source) — so this is confirming the two
+// repos agree, not introducing a second independent source. Both lists
+// are identical: NGN, GHS, KES, ZAR, USD, XAF, XOF, EGP, TZS. No values
+// changed here as a result — see handover.md's Task 9b note for the
+// full cross-check detail, including the separate (and real, but
+// out-of-scope-for-this-list) finding that only 8 of Mavins-web's 25
+// target countries can actually route through Korapay DCC today.
+const CONFIRMED_PROVIDER_CURRENCIES = {
+  // paystack.com developer docs, corroborated by multiple integration
+  // guides (Chargebee, Zoho, mctaba.com).
+  paystack: ['NGN', 'GHS', 'ZAR', 'KES', 'USD'],
+  // developers.korapay.com/docs/accept-payments +
+  // /docs/payout-via-api (both primary/official). Cross-checked against
+  // Mavins-web's reconciled list, Task 9b — see comment above.
+  korapay: ['NGN', 'GHS', 'KES', 'ZAR', 'USD', 'XAF', 'XOF', 'EGP', 'TZS'],
+};
+
+// Returns the confirmed supported-currency list for a provider, or null
+// if that provider's list hasn't been confirmed against a primary
+// source yet (JuicyWay, Payscribe). Callers MUST treat null as "can't
+// validate yet" — not as "anything goes" — see routes.js's
+// assertCurrencySupported for how this is actually enforced.
+export function getSupportedCurrencies(provider) {
+  return CONFIRMED_PROVIDER_CURRENCIES[(provider || '').toLowerCase()] || null;
+}
+
+export function getAmountFormat(provider, currency) {
+  const providerLower = (provider || '').toLowerCase();
+  const currencyUpper = (currency || '').toUpperCase();
+
+  switch (providerLower) {
+    case 'paystack': {
+      // Confirmed: paystack.com/docs/api/ — "multiplying the base
+      // amount by 100" for all 5 supported currencies.
+      const supported = getSupportedCurrencies('paystack');
+      if (!supported.includes(currencyUpper)) {
+        log(`⚠️ Paystack: currency ${currencyUpper} is not in the confirmed-supported list (${supported.join(', ')})`, 'warn');
+      }
+      return { unit: 'subunit', multiplier: 100 };
+    }
+
+    case 'korapay': {
+      // Confirmed directly (Task 7, 2026-08-27) against
+      // developers.korapay.com/docs/checkout-redirect — base currency
+      // unit, no multiplier. Currency list per
+      // developers.korapay.com/docs/accept-payments +
+      // /docs/payout-via-api.
+      const supported = getSupportedCurrencies('korapay');
+      if (!supported.includes(currencyUpper)) {
+        log(`⚠️ Korapay: currency ${currencyUpper} is not in the confirmed-supported list (${supported.join(', ')})`, 'warn');
+      }
+      return { unit: 'base', multiplier: 1 };
+    }
+
+    case 'juicyway':
+    case 'payscribe':
+      // Not yet confirmed for either provider — see handover.md's
+      // "Confirmed research findings" section (Payscribe is also
+      // waiting on a docs link; JuicyWay's webhook scheme is
+      // confirmed but its amount-unit rule for processPayment was
+      // never separately checked). Throw instead of assuming ×100 or
+      // ×1 — a silent wrong guess here is a real-money bug, not a
+      // cosmetic one.
+      throw new Error(
+        `getAmountFormat: amount-unit rule for "${provider}" is not yet confirmed — see handover.md Task 9 note before adding one`
+      );
+
+    default:
+      throw new Error(`getAmountFormat: unsupported provider "${provider}"`);
+  }
+}
+
+// Convenience wrapper: converts a base-unit input amount into whatever
+// unit the given provider actually expects, using getAmountFormat's
+// per-provider rule. Provider files should call this instead of the
+// old toSubUnit() directly.
+export function convertAmountForProvider(amount, provider, currency) {
+  const { unit, multiplier } = getAmountFormat(provider, currency);
+  return unit === 'subunit' ? Math.round(amount * multiplier) : amount;
 }
 
 export function toSubUnit(amount, currency = 'NGN') {
@@ -259,7 +435,9 @@ export function getProviderBaseUrl(provider) {
   const urls = urlMap[provider.toLowerCase()];
   
   if (!urls) {
-    throw new Error(`No base URL configured for provider: ${provider}`);
+    const err = new Error(`No base URL configured for provider: ${provider}`);
+    err.isConfigError = true; // Task 13: server misconfiguration, not for the client — see routes.js
+    throw err;
   }
   
   return urls[env] || urls.development;

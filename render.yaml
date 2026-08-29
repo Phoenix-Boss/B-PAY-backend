@@ -4,8 +4,8 @@ services:
     env: node
     region: oregon  # Choose region closest to your users/providers
     plan: starter   # Free tier to start
-    buildCommand: npm install && npm run build
-    startCommand: node dist/index.js
+    buildCommand: npm install
+    startCommand: node index.js
     envVars:
       - key: NODE_ENV
         value: production
@@ -21,4 +21,10 @@ services:
       - key: JUICYWAY_SECRET_KEY
         sync: false
       - key: KORAPAY_SECRET_KEY
+        sync: false
+      # Webhook gateway (Task 41) — per-tenant forwarding config.
+      # Add one pair per downstream app; MAVW = mavins-web.
+      - key: MAVW_WEBHOOK_URL
+        sync: false
+      - key: MAVW_WEBHOOK_FORWARD_SECRET
         sync: false
