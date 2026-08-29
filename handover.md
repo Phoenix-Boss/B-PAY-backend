@@ -465,18 +465,23 @@ commits, unmerged" is the fully expected steady state — not something
 to chase, escalate, or try to fix.
 
 **Outstanding PRs status (updated by whichever session last checked —
-see step 2 above):** As of this session (the Task 25-authoring session,
-which only added a new task and did not touch code), `origin/main` is
-still ahead of `upstream/main`, latest commit `873355f` (the Task 16
-companion / DCC currency-forwarding commit) — **confirmed still
-unmerged**, `upstream/main`'s latest is still `900db65` (the earlier PR
-#1 merge, covering commits only through `0616b8e`). Per the policy
-above, every new pushed commit keeps joining this same PR #2
-automatically; update this paragraph (don't append a new one, and
-don't hardcode a commit count that will go stale again — describe it
-relative to the hashes, as done here) each time a session's step-2
-check finds something has changed — new commits added, or (eventually)
-merged.
+see step 2 above):** **PR #2 has been merged by Phoenix-Boss**,
+confirmed this session by adding the real `upstream` remote
+(`https://github.com/Phoenix-Boss/B-PAY-backend.git`) and fetching it
+directly (not assumed, not inferred from the fork alone) —
+`upstream/main`'s latest commit is now `63f72e2`, "Merge pull request
+#2 from Zapier-codes/main", which brings in everything through
+`01df9c7` (this fork's own latest at the time of checking). This is
+the real state change the note above this one anticipated — **the
+queue-until-done plan has now reached its natural endpoint for
+everything committed so far.** Nothing in this fork's `main` is
+ahead of what's now live upstream. Per that same note: whenever the
+next task's work is ready to ship, a **fresh PR** will need to be
+opened (PR #2 is closed/merged, it won't silently keep absorbing new
+commits the way it did while open) — don't assume `git push
+origin main` alone is still sufficient the way it was during PR #2's
+window; check whether a new PR needs creating before assuming a plain
+push is the whole story next time.
 
 ---
 
