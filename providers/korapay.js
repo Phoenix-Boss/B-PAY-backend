@@ -121,6 +121,121 @@ export class Korapay {
     return result;
   }
 
+
+  // ==================================================
+  // 💸 PAYOUT / DISBURSEMENT
+  // ==================================================
+  // Korapay's disburse endpoint for sending money OUT to bank
+  // accounts or mobile money wallets. This is the outbound flow
+  // (paying listeners, refunds, vendor settlements) vs the inbound
+  // collection flow in processPayment() above.
+  //
+  // Endpoint: POST /api/v1/transactions/disburse
+  // Docs: developers.korapay.com/docs/payout-via-api
+  //
+  // Required fields:
+  //   - amount (number): in base currency units (same as collection)
+  //   - currency (string): 3-letter code, e.g. 'NGN'
+  //   - reference (string): unique transaction reference
+  //   - bank_code (string): recipient bank code (from Korapay's bank list)
+  //   - account_number (string): recipient account number
+  //   - narration (string): description/purpose of the payout
+  //
+  // Optional fields:
+  //   - customer (object): { name, email } — for notification/receipt
+  //   - payment_method (string): 'bank_transfer' | 'mobile_money' | etc.
+  //
+  // The "tag" from Nova Bank maps directly to account_number here.
+  // Nova Bank is a virtual-account provider; their "tag" IS the
+  // account number Korapay's disburse endpoint expects. No separate
+  // Nova Bank API call is needed — Korapay handles the full rail.
+  async processPayout(data) {
+    const ref = data.reference || generateReference('korapay-payout');
+    const amount = convertAmountForProvider(data.amount, 'korapay', data.currency);
+
+    // Build core payload — bank_code + account_number are the
+    // Korapay-native identifiers for the recipient.
+    const payload = {
+      amount,
+      currency: data.currency,
+      reference: ref,
+      bank_code: data.bank_code,
+      account_number: data.account_number,
+      narration: data.narration || 'Payout from Mavins',
+    };
+
+    // Optional customer envelope (notifications/receipts)
+    if (data.customer?.name || data.customer?.email) {
+      payload.customer = {
+        name: data.customer.name,
+        email: data.customer.email,
+      };
+    }
+
+    // Optional payment-method hint (Korapay may use this for routing)
+    if (data.payment_method) {
+      payload.payment_method = data.payment_method;
+    }
+
+    log(`Korapay Payout Request: ${formatPayload(payload)}`);
+
+    const result = await handleApiCall(async () => {
+      const response = await fetch(`${this.baseUrl}/api/v1/transactions/disburse`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${this.secretKey}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(payload),
+      });
+
+      const responseData = await response.json();
+
+      if (!response.ok || !responseData.status) {
+        throw providerError(responseData.message || 'Korapay payout failed');
+      }
+
+      return responseData;
+    }, 'korapay');
+
+    log(`Korapay Payout Response: ${formatPayload(result)}`);
+    return result;
+  }
+
+  // ==================================================
+  // 🏦 BANK LIST (helper for payout recipient setup)
+  // ==================================================
+  // Returns the list of supported banks with their Korapay codes.
+  // Callers use this to map a user's selected bank name → bank_code
+  // for processPayout(). Cached in-memory for 1 hour by default.
+  async getBanks(currency = 'NGN') {
+    log(`Korapay Banks Request for currency: ${currency}`);
+
+    const result = await handleApiCall(async () => {
+      const response = await fetch(
+        `${this.baseUrl}/api/v1/banks?currency=${encodeURIComponent(currency)}`,
+        {
+          method: 'GET',
+          headers: {
+            'Authorization': `Bearer ${this.secretKey}`,
+            'Content-Type': 'application/json',
+          },
+        }
+      );
+
+      const responseData = await response.json();
+
+      if (!response.ok || !responseData.status) {
+        throw providerError(responseData.message || 'Korapay bank list failed');
+      }
+
+      return responseData;
+    }, 'korapay');
+
+    log(`Korapay Banks Response: ${formatPayload(result)}`);
+    return result;
+  }
+
   // ==================================================
   // 🔔 WEBHOOK SIGNATURE VERIFICATION
   // ==================================================
