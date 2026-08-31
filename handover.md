@@ -3,6 +3,17 @@
 > **▶ START HERE — read this box only, then go straight to work. Skip
 > everything else below unless you get stuck.**
 >
+> **Newest note (2026-08-30) — new mandatory rule for every session,
+> all three repos: focus on building code now, and split whatever task
+> you pick into parts, building only one part per session.** Full rule
+> in the new "Build-focus + mandatory task-splitting" section right
+> after "Unified hand-off command format" near the top of this file.
+> Not applied to anything in THIS repo this session — this session
+> only added the rule itself (synced from Mavins-web, where it was
+> first written and applied) and did not verify or touch this repo's
+> own task queue below; the rest of this box's content is unchanged
+> and not re-confirmed as of this note.
+>
 > **Next task in THIS repo: none currently unblocked in code —
 > unchanged.** Task 41 (central Korapay webhook gateway) is **built**
 > — `webhookGateway.js`, wired into `routes.js`'s Korapay handler and
@@ -301,6 +312,53 @@ segment — still exactly this shape, not a shorter/different one.
    `cd && git am && git push` shape (just a shorter chain) — not a
    different, shorter format "because it's only one repo." Consistency
    for the human is the entire point of this section existing.
+
+---
+
+## Build-focus + mandatory task-splitting — MANDATORY, every session, all three repos
+
+**Added to all three repos' handover files this session (2026-08-30),
+kept identical the same way the section above it is — if you edit
+this section, copy the same edit into the other two in the same
+session.**
+
+**Direct product-owner instruction, two parts:**
+
+1. **All sessions should focus on building the code now, fully** — the
+   discovery/diagnosis-heavy phase this project spent a lot of recent
+   sessions in (schema queries, cross-repo diagnoses, architecture
+   proposals) should give way to actually implementing what's already
+   been decided. A task that's still genuinely blocked on a real open
+   product question stays blocked — don't force an answer that isn't
+   there — but a task sitting on a *resolved* decision with nothing
+   left but to write the code is exactly what a session should pick
+   next, in preference to opening a new discovery thread.
+2. **Every session must split whatever task it picks into parts, and
+   build only one of those parts** — never the whole task in one go,
+   regardless of how small the task looks at a glance. This formalizes,
+   as a standing rule rather than an occasional judgment call, the
+   pattern this project has already used successfully several times
+   (this repo's own Task 33 Part 2's a/b/c/d split; Mavins-web's Task
+   46's a/b/c/d/e split, Task 48-b/48-c/48-d's own lettered sub-splits)
+   — each part stays independently reviewable, independently
+   revertible, and independently patchable, and the natural stopping
+   point after one part keeps a single session's diff small enough to
+   actually verify properly (`tsc`/`node --check`, targeted checks, a
+   throwaway comparison script) rather than ballooning into something
+   no one part of which got real scrutiny.
+
+**How to split, in practice:** before writing any code, write out the
+task's natural parts (even if the task text doesn't already list them —
+most won't yet, since this is a new standing rule) as their own labeled
+sub-entries in the handover file, the same way this repo's own Task 33
+Part 2 or Mavins-web's Task 46 entries list their own lettered parts.
+Pick the first genuinely unblocked part, build only that one, and leave
+the rest explicitly marked not-started for the next session — don't
+silently keep going into part two because it "was right there." If a
+task turns out to have exactly one indivisible unit of work (rare, but
+possible for something truly small), that's fine — say so explicitly
+in the write-up ("not split further, this is a single atomic change")
+rather than leaving it looking like a part was skipped.
 
 ---
 
