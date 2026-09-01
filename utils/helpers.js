@@ -1,4 +1,66 @@
 import 'dotenv/config';
+import crypto from 'crypto';
+
+// ==================================================
+// 🔒 INTERNAL AUTH — money-moving routes only (Part A of the
+// unauthenticated-/payout finding, flagged 2026-08-31)
+// ==================================================
+// POST /payout had ZERO authentication of any kind until this fix —
+// confirmed directly against routes.js before writing anything here,
+// not assumed from the flag alone: any request from anywhere on the
+// internet could trigger a real Korapay payout to an arbitrary bank
+// account, no caller verification whatsoever. This is Part A only —
+// the fix for THIS route specifically, the single most severe case
+// (outbound money movement, never meant to be reachable by an end
+// user's own request at all). Extending the same protection to
+// /pay, /verify, /banks, and independently verifying this route's
+// amount-unit convention against Korapay's real payout API docs (the
+// second half of the original flag, not addressed here) are both
+// explicitly left for Part B — see this file's own handover note.
+//
+// Shared-secret pattern, not per-caller — matches this file's own
+// existing MAVW_WEBHOOK_FORWARD_SECRET naming convention (a single
+// env var, not a signing scheme) since there's exactly one trusted
+// caller today (Mavins-web's own server-side code); can evolve to
+// per-caller keys later if a second caller needs distinguishing, not
+// over-built for a problem that doesn't exist yet.
+export function requireInternalApiKey(req, res, next) {
+  const configuredKey = process.env.INTERNAL_API_KEY;
+
+  if (!configuredKey) {
+    // Fail closed, not open — same posture this codebase already
+    // uses everywhere else a secret might be unconfigured (see
+    // korapay-webhook's own signature checks in the sibling Mavins-web
+    // repo). An unset key must never be treated as "auth disabled,
+    // let everything through."
+    log('requireInternalApiKey: INTERNAL_API_KEY is not set — rejecting all requests to this route', 'error');
+    return res.status(500).json({ status: 'error', message: 'Server misconfigured' });
+  }
+
+  const providedKey = req.headers['x-internal-api-key'];
+
+  if (!providedKey || typeof providedKey !== 'string') {
+    return res.status(401).json({ status: 'error', message: 'Missing X-Internal-Api-Key header' });
+  }
+
+  // Constant-time comparison — same rigor already established in
+  // webhookGateway.js's signature checks, applied here too rather
+  // than a plain === (which leaks timing information about how many
+  // leading characters matched).
+  const configuredBuffer = Buffer.from(configuredKey, 'utf8');
+  const providedBuffer = Buffer.from(providedKey, 'utf8');
+
+  const valid =
+    configuredBuffer.length === providedBuffer.length &&
+    crypto.timingSafeEqual(configuredBuffer, providedBuffer);
+
+  if (!valid) {
+    log('requireInternalApiKey: invalid key provided for a payout-adjacent route', 'error');
+    return res.status(401).json({ status: 'error', message: 'Invalid X-Internal-Api-Key' });
+  }
+
+  next();
+}
 
 // ==================================================
 // 📝 LOGGING UTILITIES

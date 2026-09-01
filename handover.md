@@ -3,6 +3,28 @@
 > **▶ START HERE — read this box only, then go straight to work. Skip
 > everything else below unless you get stuck.**
 >
+> **Newest note (2026-09-01, latest of all) — Task 42 Part A: CRITICAL
+> security fix, `POST /payout` had zero authentication, now fixed.**
+> Found by a Mavins-web session but flagged in the wrong repo's
+> handover (this one has the actual vulnerable code) — confirmed
+> directly against this repo's `routes.js` before building anything,
+> not taken on trust: any unauthenticated request from anywhere could
+> trigger a real Korapay payout to an arbitrary bank account. New
+> `requireInternalApiKey` middleware (`utils/helpers.js`), shared
+> secret via `X-Internal-Api-Key` header, `crypto.timingSafeEqual`
+> comparison, fails closed if the env var itself is unset. Applied to
+> `POST /payout` only — verified via `node --check` + 6 functional
+> test cases, all passing, including the critical
+> env-var-unset-fails-closed case. **`INTERNAL_API_KEY` still needs a
+> real value set in Render's dashboard** — nothing is actually
+> protected in production until that happens, this is a code fix
+> only. **Next: Task 42 Part B** — extend the same protection to
+> `/pay`/`/verify`/`/banks` (needs checking whether that's even
+> appropriate for those routes first) AND independently verify
+> `processPayout`'s amount-unit convention against Korapay's real
+> payout docs (never confirmed, unlike the collection side). Full
+> write-up in Task 42's own entry.
+>
 > **Newest note (2026-08-31) — PR #3 opened against upstream, closes
 > the gap PR #2's merge/close left open.** Confirmed via `git fetch
 > upstream` that PR #2 is merged and closed (`upstream/main` at
@@ -2364,3 +2386,80 @@ nothing further to decide there.)
   new patches in this file too, so numbering doesn't have to track
   three repos' independent, interleaved sessions.
 
+
+---
+
+## Task 42 — CRITICAL: POST /payout had zero authentication — Part A fixed, Part B still open [x] (Part A only)
+
+**Found by a Mavins-web session, flagged there instead of here (the
+wrong repo — the vulnerable code lives in this one), confirmed
+directly against this repo's own `routes.js` before writing anything
+down, not taken on trust.** `POST /payout` — the route that actually
+moves real money out via Korapay's disburse API — had **no
+authentication of any kind**: no API key, no shared secret, no IP
+allowlist, nothing. Any request from anywhere on the internet, with no
+credentials at all, could trigger a real payout to an arbitrary bank
+account by supplying `amount`/`bank_code`/`account_number` directly.
+This is the single most severe finding in this project's history —
+prioritized over the literal next item in the feature queue given the
+live financial risk, same judgment call this project's own "urgent
+security finding" precedent elsewhere would support.
+
+**Split into Part A/B, this session, per the standing mandatory
+task-splitting rule — Part A only, built and verified:**
+
+### Part A — authentication on `/payout` specifically [x]
+New `requireInternalApiKey` middleware (`utils/helpers.js`) — a shared
+secret (`INTERNAL_API_KEY`, new env var, `render.yaml` updated,
+**not yet set to a real value in Render's dashboard** — manual
+product-owner step, same class of action as every other secret in
+this file), sent by trusted callers as `X-Internal-Api-Key`, compared
+with `crypto.timingSafeEqual` (same rigor already established in
+`webhookGateway.js`'s own signature checks — deliberately not a plain
+`===`, which would leak timing information). **Fails closed if the
+env var itself is unset** — same posture already used everywhere else
+in this codebase a secret might be missing; an unconfigured key must
+never be silently treated as "no auth required." Applied to `POST
+/payout` only, via `router.post('/payout', requireInternalApiKey,
+async (req, res) => { ... })` — a single middleware argument, minimal
+surface change.
+
+**Verified, not assumed:** `node --check` on both touched files; a
+standalone functional test against 6 cases, all passing — correct key
+lets the request through, missing key rejected (401), wrong key
+rejected (401), a key of different byte length rejected without
+crashing (401 — confirms the length-check-before-`timingSafeEqual`
+guard works, since that function throws on mismatched lengths rather
+than returning false), empty-string key rejected (401), and critically
+**the env var being unset fails closed with a 500, never lets a
+request through** — the one case that would have been catastrophic to
+get wrong.
+
+### Part B — NOT done this session, explicitly deferred [ ]
+Two things, both flagged, neither addressed:
+1. **Extend the same `requireInternalApiKey` protection to `/pay`,
+   `/verify`, and `/banks`** — this session deliberately scoped to
+   `/payout` alone (the single most severe case, outbound money
+   movement never meant to be reachable by an end user's own request)
+   rather than protecting every route at once. Worth real
+   consideration before blanket-applying, though: `/pay` and `/verify`
+   may need to stay reachable from contexts `/payout` never should be
+   (check Mavins-web's own calling code before assuming the same
+   middleware is appropriate for all three).
+2. **Independently verify this route's amount-unit convention against
+   Korapay's real payout API docs** — the second half of the original
+   flag, not addressed by Part A at all. The collection side
+   (`processPayment`) was carefully confirmed to expect Korapay
+   amounts in base currency units, not kobo (Task 26/41's own
+   history) — `processPayout`'s own amount convention has **never
+   been independently checked** against Korapay's actual disburse API
+   docs the same way. If it's wrong, real money moves in the wrong
+   unit — check this before this route sees any real production
+   traffic, not assumed correct just because the collection side was.
+
+**Once Part B item 1 covers `/pay`/`/verify` too (if that turns out to
+be the right call) — remember Mavins-web's own server-side callers
+will need the new `X-Internal-Api-Key` header added to their own
+requests, a cross-repo change, not just this one.**
+
+---

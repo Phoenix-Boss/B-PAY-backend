@@ -3,7 +3,7 @@ import { Paystack } from './providers/paystack.js';
 import { Payscribe } from './providers/payscribe.js';
 import { Juicyway } from './providers/juicyway.js';
 import { Korapay } from './providers/korapay.js';
-import { log, formatPayload, generateReference, getSupportedCurrencies, isValidCurrencyCode, isValidEmail, providerRequiresEmail } from './utils/helpers.js';
+import { log, formatPayload, generateReference, getSupportedCurrencies, isValidCurrencyCode, isValidEmail, providerRequiresEmail, requireInternalApiKey } from './utils/helpers.js';
 import { handleGatewayEvent } from './webhookGateway.js';
 
 const router = express.Router();
@@ -26,7 +26,7 @@ const router = express.Router();
 //     "reference": "optional-custom-ref",
 //     "customer": { "name": "John Doe", "email": "john@example.com" }
 //   }
-router.post('/payout', async (req, res) => {
+router.post('/payout', requireInternalApiKey, async (req, res) => {
   try {
     const { amount, currency, bank_code, account_number, narration, reference, customer, payment_method } = req.body;
 
