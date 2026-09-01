@@ -392,6 +392,15 @@ session.**
    actually verify properly (`tsc`/`node --check`, targeted checks, a
    throwaway comparison script) rather than ballooning into something
    no one part of which got real scrutiny.
+   **Amended (2026-09-01, later still), per explicit product-owner
+   instruction: cap the split at 5 parts, lettered a through e.** A
+   task doesn't need all 5 — 2 parts (a/b) is completely fine when
+   that's the natural shape, same as Mavins-web's Task 59 Part 2b-b's
+   own A/B split — but never split into more than 5. If a task's
+   natural granularity seems to want a 6th part, that's a signal the
+   task itself is too big for one split and should be broken into two
+   separate top-level tasks (each with its own up-to-5-part split)
+   rather than stretched to 6+ lettered sub-parts under one task.
 
 **How to split, in practice:** before writing any code, write out the
 task's natural parts (even if the task text doesn't already list them —
