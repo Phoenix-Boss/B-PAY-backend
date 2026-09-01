@@ -3,6 +3,30 @@
 > **▶ START HERE — read this box only, then go straight to work. Skip
 > everything else below unless you get stuck.**
 >
+> **Newest note (2026-08-31) — PR #3 opened against upstream, closes
+> the gap PR #2's merge/close left open.** Confirmed via `git fetch
+> upstream` that PR #2 is merged and closed (`upstream/main` at
+> `63f72e2`, "Merge pull request #2 from Zapier-codes/main") — the
+> plain-`git push`-auto-joins-an-open-PR mechanic that worked during
+> PR #2's window no longer applies. Checked `origin/main` against
+> `upstream/main` via `git log upstream/main..origin/main` (not
+> assumed): exactly 3 commits ahead —
+> `f755a40` (feat: full Korapay payout flow + bank list, the real
+> substance, verified with `node --check` before recommending a PR for
+> it), plus 2 docs-only commits (`adf47d1`, `2d4a7d6`). This sandbox
+> has no GitHub authentication (`gh` unavailable, no token, no
+> credential helper — confirmed, not assumed) so the PR itself was
+> opened by the person running the command, via `gh pr create --repo
+> Phoenix-Boss/B-PAY-backend --base main --head Zapier-codes:main`.
+> **Result: https://github.com/Phoenix-Boss/B-PAY-backend/pull/3** —
+> confirmed via `gh pr create`'s own success output (an authenticated,
+> authoritative source; a follow-up unauthenticated `api.github.com`
+> double-check hit a rate limit and wasn't needed). **Same
+> queue-until-merged posture as PR #2**: a future session should check
+> this PR's live status (merged/open/closed) before assuming anything
+> about upstream sync, the same way this session checked PR #2's
+> status directly rather than trusting an old assumption.
+>
 > **Newest note (2026-08-30) — new mandatory rule for every session,
 > all three repos: focus on building code now, and split whatever task
 > you pick into parts, building only one part per session.** Full rule
