@@ -3,7 +3,29 @@
 > **▶ START HERE — read this box only, then go straight to work. Skip
 > everything else below unless you get stuck.**
 >
-> **Newest note (2026-09-01, latest of all) — Task 42 Part A: CRITICAL
+> **Newest note (2026-09-01, latest of all) — Task 42 Part B split
+> into a/b/c; Part a done (documentation only) — confirmed the amount
+> convention is correct, but found a much bigger, undocumented bug
+> along the way.** `processPayout()`'s payload shape doesn't match
+> Korapay's real Payout API at all — everything needs to nest under a
+> `destination` object (`destination.type`, `.amount`, `.currency`,
+> `.bank_account.{bank,account}`, `.customer.email`, `.narration`),
+> with `destination.type` being **required** and never set by this
+> code at all. The current code sends a flat top-level payload
+> instead. This means **every real payout call almost certainly fails
+> outright**, independent of the amount-unit question Part a was
+> actually scoped to answer (which itself came back confirmed correct:
+> base currency unit, two decimal places, matching the existing
+> `{ unit: 'base', multiplier: 1 }` config — no change needed there).
+> Documentation only, per explicit instruction — the payload-shape fix
+> itself is NOT built yet. Full write-up, including the exact
+> field-by-field mismatch table and a smaller flagged currency-list
+> discrepancy (TZS), in Task 42's own "Part a" entry. **Next: Part b**
+> (or, given the severity just found, likely a fast-tracked fix of the
+> payload shape itself before b/c — flag this to the product owner
+> before assuming b/c still come first).
+>
+> **Newest note (2026-09-01, previous) — Task 42 Part A: CRITICAL
 > security fix, `POST /payout` had zero authentication, now fixed.**
 > Found by a Mavins-web session but flagged in the wrong repo's
 > handover (this one has the actual vulnerable code) — confirmed
@@ -2398,7 +2420,7 @@ nothing further to decide there.)
 
 ---
 
-## Task 42 — CRITICAL: POST /payout had zero authentication — Part A fixed, Part B still open [x] (Part A only)
+## Task 42 — CRITICAL: POST /payout had zero authentication — Part A fixed, Part B split into a/b/c, only a done [x] (Part A + Part B's a only)
 
 **Found by a Mavins-web session, flagged there instead of here (the
 wrong repo — the vulnerable code lives in this one), confirmed
@@ -2444,31 +2466,98 @@ than returning false), empty-string key rejected (401), and critically
 request through** — the one case that would have been catastrophic to
 get wrong.
 
-### Part B — NOT done this session, explicitly deferred [ ]
-Two things, both flagged, neither addressed:
-1. **Extend the same `requireInternalApiKey` protection to `/pay`,
-   `/verify`, and `/banks`** — this session deliberately scoped to
-   `/payout` alone (the single most severe case, outbound money
-   movement never meant to be reachable by an end user's own request)
-   rather than protecting every route at once. Worth real
-   consideration before blanket-applying, though: `/pay` and `/verify`
-   may need to stay reachable from contexts `/payout` never should be
-   (check Mavins-web's own calling code before assuming the same
-   middleware is appropriate for all three).
-2. **Independently verify this route's amount-unit convention against
-   Korapay's real payout API docs** — the second half of the original
-   flag, not addressed by Part A at all. The collection side
-   (`processPayment`) was carefully confirmed to expect Korapay
-   amounts in base currency units, not kobo (Task 26/41's own
-   history) — `processPayout`'s own amount convention has **never
-   been independently checked** against Korapay's actual disburse API
-   docs the same way. If it's wrong, real money moves in the wrong
-   unit — check this before this route sees any real production
-   traffic, not assumed correct just because the collection side was.
+### Part B — split into a/b/c this session, per the standing mandatory task-splitting rule [ ] (a only)
 
-**Once Part B item 1 covers `/pay`/`/verify` too (if that turns out to
-be the right call) — remember Mavins-web's own server-side callers
-will need the new `X-Internal-Api-Key` header added to their own
-requests, a cross-repo change, not just this one.**
+Originally two flagged items; split into three parts along their
+actual dependency lines rather than the original 1/2 grouping — item 2
+(amount-unit verification) is fully independent and became Part a;
+item 1 (extend auth to other routes) splits into an investigation
+(Part b: is it even appropriate) and its own implementation (Part c),
+since "check first, then maybe build" was always two different jobs
+bundled into one bullet.
+
+### Part a — independently verify `processPayout`'s amount-unit convention against Korapay's real payout docs [x] (documentation only, no code changed)
+
+**Done this session (2026-09-01) — the narrow question is answered,
+but a much bigger, previously-undocumented problem surfaced while
+answering it.**
+
+**The amount-unit question itself: confirmed correct, no change
+needed.** Fetched `developers.korapay.com/docs/payout-via-api`
+directly (not relied on from memory or the collection-side citation) —
+its field reference describes `destination.amount` as the transaction
+amount "in two decimal places," i.e. base currency units (e.g.
+`1500.00` for fifteen hundred naira), the same convention already
+confirmed for the collection side. This matches the existing
+`getAmountFormat('korapay', ...)` config exactly
+(`{ unit: 'base', multiplier: 1 }`) — Part A's assumption that the
+payout side shares the collection side's convention turns out to be
+right, now independently confirmed rather than merely assumed.
+
+**What actually needs fixing, found in the same pass — flagged, NOT
+built, per explicit instruction to keep this session documentation
+only:** `processPayout()`'s entire request payload shape doesn't match
+the real, current Payout API at all. The official schema requires
+every payout-specific field nested under a single `destination`
+object, with `destination.type` (`bank_account` or `mobile_money`)
+**required** — this codebase's payload is flat at the top level and
+never sets a `type` field anywhere. Field-by-field, as currently sent
+vs. what Korapay's docs actually require:
+
+| Sent today (`providers/korapay.js`, top-level) | Required today (nested under `destination`) |
+|---|---|
+| *(nothing — `destination.type` never set)* | `destination.type` — **required**, `bank_account` or `mobile_money` |
+| `amount` | `destination.amount` |
+| `currency` | `destination.currency` |
+| `bank_code` | `destination.bank_account.bank` |
+| `account_number` | `destination.bank_account.account` |
+| `narration` | `destination.narration` |
+| `customer` (optional in this code) | `destination.customer.email` — **required** |
+| `payment_method` | *(not a real field on this endpoint at all)* |
+
+**Practical effect: every real payout call this code makes almost
+certainly gets rejected outright by Korapay** — not a wrong-amount
+bug, a wrong-shape bug, independent of and more severe than the
+amount-unit question this part was actually scoped to check. This
+should very likely be fast-tracked ahead of Part b/c given it affects
+whether payouts function at all, not just their security — but that's
+a product-owner call, not this session's to make unilaterally
+(explicit instruction this session: documentation only, don't fix it
+even though the severity is high).
+
+**Smaller, secondary finding, also flagged rather than corrected
+here:** the currently-confirmed Korapay currency list
+(`CONFIRMED_PROVIDER_CURRENCIES.korapay` in `utils/helpers.js`)
+includes `TZS`, but the *current* live payout-via-api docs page's
+currency field lists only `NGN, KES, GHS, XOF, XAF, EGP, ZAR, USD` for
+payouts — no TZS. Either the docs changed since that list was first
+confirmed, or TZS payout support may not actually exist and the
+original citation was mistaken. Not corrected here since
+`CONFIRMED_PROVIDER_CURRENCIES` is a shared list other code paths
+depend on (including the collection side, where TZS may well still be
+correct) — a future session should re-verify TZS specifically for
+payouts before either removing it or confirming it stays.
+
+**One more real detail worth a future session knowing, not urgent
+enough to block anything:** Korapay's docs state that XAF and XOF
+payouts are only accepted in multiples of 5 or 10 — an amount like
+XAF 101 must be rounded to 100 or 110 before the request, or it's
+rejected. Nothing in this codebase currently handles that rounding
+rule for any currency.
+
+### Part b — is extending `requireInternalApiKey` to `/pay`/`/verify`/`/banks` even appropriate? [ ]
+
+Not started. Original concern stands: `/pay` and `/verify` may need to
+stay reachable from contexts `/payout` never should be — check
+Mavins-web's own calling code before assuming the same middleware fits
+all three.
+
+### Part c — implement whatever Part b concludes [ ]
+
+Not started; depends on Part b's answer. **Once this covers
+`/pay`/`/verify` too (if that turns out to be the right call) —
+remember Mavins-web's own server-side callers will need the new
+`X-Internal-Api-Key` header added to their own requests, a cross-repo
+change, not just this one.**
 
 ---
