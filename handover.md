@@ -3,27 +3,40 @@
 > **▶ START HERE — read this box only, then go straight to work. Skip
 > everything else below unless you get stuck.**
 >
-> **Newest note (2026-09-01, latest of all) — Task 42 Part B split
-> into a/b/c; Part a done (documentation only) — confirmed the amount
-> convention is correct, but found a much bigger, undocumented bug
-> along the way.** `processPayout()`'s payload shape doesn't match
-> Korapay's real Payout API at all — everything needs to nest under a
-> `destination` object (`destination.type`, `.amount`, `.currency`,
-> `.bank_account.{bank,account}`, `.customer.email`, `.narration`),
-> with `destination.type` being **required** and never set by this
-> code at all. The current code sends a flat top-level payload
-> instead. This means **every real payout call almost certainly fails
-> outright**, independent of the amount-unit question Part a was
-> actually scoped to answer (which itself came back confirmed correct:
-> base currency unit, two decimal places, matching the existing
-> `{ unit: 'base', multiplier: 1 }` config — no change needed there).
-> Documentation only, per explicit instruction — the payload-shape fix
-> itself is NOT built yet. Full write-up, including the exact
-> field-by-field mismatch table and a smaller flagged currency-list
-> discrepancy (TZS), in Task 42's own "Part a" entry. **Next: Part b**
-> (or, given the severity just found, likely a fast-tracked fix of the
-> payload shape itself before b/c — flag this to the product owner
-> before assuming b/c still come first).
+> **Newest note (2026-09-01, latest of all) — Task 42 Part B, CRITICAL
+> payload-shape bug FIXED, split into a/b, only a done.** Part a
+> (previous session) confirmed the amount-unit convention was correct
+> but found `processPayout()`'s entire request shape didn't match
+> Korapay's real Payout API — everything needed nesting under a
+> `destination` object, `destination.type` never set, flat top-level
+> payload instead. **Fixed this session**, independently verified
+> against two sources (Korapay's own docs page + a community Elixir
+> client library's published type spec, agreeing with each other) —
+> `destination: { type, amount, currency, narration, bank_account:
+> { bank, account }, customer: { email, name?, phone? } }`, `type`
+> explicitly sent (defaults to `bank_account` per Korapay's own docs
+> if omitted, but no reason to rely on an undocumented default),
+> `customer.email` now a **required**, throw-before-request field
+> (previously silently optional, which itself would have caused a
+> rejection under the real schema). Verified via `node --check` +
+> 4 functional test cases, all passing — full nested shape correct, no
+> stray top-level fields, `mobile_money` type override works, no
+> leaked `undefined` keys when `name`/`phone` are omitted, missing
+> email throws before any request is built. **Next: Part b** — the
+> response-parsing side was deliberately NOT touched this session
+> (Part a's own scope was the outgoing request shape only) — Korapay's
+> real payout response example is a flat object (`amount`, `fee`,
+> `currency`, `status` as a *string* like `"processing"`, not a
+> boolean), which the current `!responseData.status` check may not be
+> validating correctly since a truthy string like `"processing"` would
+> pass that check regardless of actual outcome — needs verification
+> against the real response envelope shape before this route can be
+> trusted end-to-end, same rigor just applied to the request side.
+> Also still open from Part a: the TZS-in-payout-currency-list
+> discrepancy, and Part B's original items 1 (auth extension to other
+> routes) as Part b/c of the earlier split — check this repo's own
+> section-level detail for how these separate splits relate before
+> assuming which "Part b" is meant.
 >
 > **Newest note (2026-09-01, previous) — Task 42 Part A: CRITICAL
 > security fix, `POST /payout` had zero authentication, now fixed.**
@@ -2420,7 +2433,7 @@ nothing further to decide there.)
 
 ---
 
-## Task 42 — CRITICAL: POST /payout had zero authentication — Part A fixed, Part B split into a/b/c, only a done [x] (Part A + Part B's a only)
+## Task 42 — CRITICAL: POST /payout had zero authentication — Part A fixed; Part B split, payload-shape bug found AND fixed, auth-extension (b/c) still open [x] (Part A + Part B's amount-verify + payload-shape fix)
 
 **Found by a Mavins-web session, flagged there instead of here (the
 wrong repo — the vulnerable code lives in this one), confirmed
@@ -2544,6 +2557,59 @@ payouts are only accepted in multiples of 5 or 10 — an amount like
 XAF 101 must be rounded to 100 or 110 before the request, or it's
 rejected. Nothing in this codebase currently handles that rounding
 rule for any currency.
+
+### Part a's own fix — the payload-shape bug it found, now fixed (2026-09-01) [x]
+
+**This session, split from the original a/b/c grouping per direct
+instruction ("split into a and b, do only a") — treated as its own
+a/b, separate from the pre-existing Part b/c above (those are about
+the unrelated auth-extension question).** Independently re-verified
+the mismatch before fixing anything — fetched
+`developers.korapay.com/docs/payout-via-api` again AND a community
+Elixir client library's own published type spec
+(`@type destination() :: %{type: String.t(), amount: float(),
+currency: String.t(), narration: String.t(), bank_account:
+short_bank_account(), customer: customer()}`) — **two independent
+sources agreeing**, not relying on the prior session's own citation
+alone.
+
+**Fixed in `providers/korapay.js#processPayout()`:** the entire
+outgoing payload now nests under `destination` exactly as both sources
+describe — `type` (explicitly sent, `'mobile_money'` when
+`data.payment_method === 'mobile_money'`, `'bank_account'` otherwise;
+Korapay's own docs say this defaults to `bank_account` if omitted, but
+there's no reason to lean on an undocumented-in-the-official-reference
+default when the value is always known at call time), `amount`,
+`currency`, `narration`, `bank_account: { bank, account }` (renamed
+from the old flat `bank_code`/`account_number`), and `customer: {
+email, name?, phone? }`. **`customer.email` is now required, not
+optional** — the old code let it be silently omitted; the real schema
+requires it, so this now throws a clear `providerError` before any
+request is even built, rather than letting Korapay reject an
+incomplete request with a less specific error.
+
+**Verified:** `node --check` on the modified file; a standalone
+functional test, 4 cases, all passing — full nested shape correct
+with zero stray top-level fields; the `mobile_money` type override
+works; no leaked `undefined` `name`/`phone` keys in `customer` when
+those are omitted (JS's `...(cond && {...})` spread pattern, confirmed
+it doesn't add an `undefined`-valued key the way a plain conditional
+assignment might); missing `customer.email` throws before payload
+construction.
+
+**Deliberately NOT touched, this is "only a" — the "b" this split
+implies:** the response-parsing side. Korapay's own real payout
+response example is a flat object with **`status` as a string**
+(e.g. `"processing"`, `"success"`), not the `{status: true/false,
+message, data: {...}}` boolean-envelope shape the collection endpoints
+return — the current code's `!responseData.status` check may not be
+validating what it looks like it's validating, since a truthy string
+like `"processing"` passes that check regardless of the actual
+outcome. Not fixed here — flagging clearly rather than guessing at the
+right check without re-confirming the exact response envelope shape
+first, same rigor just applied to the request side. Also still open,
+unchanged from Part a's original notes above: the TZS currency-list
+discrepancy, and the XAF/XOF rounding-multiple rule.
 
 ### Part b — is extending `requireInternalApiKey` to `/pay`/`/verify`/`/banks` even appropriate? [ ]
 

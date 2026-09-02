@@ -149,33 +149,57 @@ export class Korapay {
   // Nova Bank is a virtual-account provider; their "tag" IS the
   // account number Korapay's disburse endpoint expects. No separate
   // Nova Bank API call is needed — Korapay handles the full rail.
+  //
+  // Task 42 Part B-a (handover.md) — CRITICAL payload-shape fix. Every
+  // real payout call this code made before this fix almost certainly
+  // failed outright: Korapay's real Payout API requires the entire
+  // destination-specific payload nested under a single `destination`
+  // object, with `destination.type` present (defaults to
+  // 'bank_account' per Korapay's own client library docs if omitted,
+  // but sent explicitly here anyway — no reason to rely on an
+  // undocumented-in-the-official-reference default when the value is
+  // always known at call time) and `destination.customer.email`
+  // required, not optional. Independently verified against
+  // developers.korapay.com/docs/payout-via-api AND a community Elixir
+  // client library's own published type spec (two independent
+  // sources agreeing, not one) before writing this — both confirm the
+  // exact same shape: `destination: { type, amount, currency,
+  // narration, bank_account: { bank, account }, customer: { email,
+  // name?, phone? } }`. The previous flat top-level payload
+  // (`amount`, `currency`, `bank_code`, `account_number` all as
+  // siblings of `reference`) was never a real Korapay payout request
+  // shape at any point — this was a genuine bug, not a schema change
+  // on Korapay's side.
   async processPayout(data) {
     const ref = data.reference || generateReference('korapay-payout');
     const amount = convertAmountForProvider(data.amount, 'korapay', data.currency);
 
-    // Build core payload — bank_code + account_number are the
-    // Korapay-native identifiers for the recipient.
+    // customer.email is REQUIRED by Korapay's real schema (unlike the
+    // old flat payload, which treated the whole customer object as
+    // optional) — fail loudly here rather than letting Korapay reject
+    // the request with a less specific error further downstream.
+    if (!data.customer?.email) {
+      throw providerError('customer.email is required for Korapay payouts');
+    }
+
     const payload = {
-      amount,
-      currency: data.currency,
       reference: ref,
-      bank_code: data.bank_code,
-      account_number: data.account_number,
-      narration: data.narration || 'Payout from Mavins',
+      destination: {
+        type: data.payment_method === 'mobile_money' ? 'mobile_money' : 'bank_account',
+        amount,
+        currency: data.currency,
+        narration: data.narration || 'Payout from Mavins',
+        bank_account: {
+          bank: data.bank_code,
+          account: data.account_number,
+        },
+        customer: {
+          email: data.customer.email,
+          ...(data.customer.name && { name: data.customer.name }),
+          ...(data.customer.phone && { phone: data.customer.phone }),
+        },
+      },
     };
-
-    // Optional customer envelope (notifications/receipts)
-    if (data.customer?.name || data.customer?.email) {
-      payload.customer = {
-        name: data.customer.name,
-        email: data.customer.email,
-      };
-    }
-
-    // Optional payment-method hint (Korapay may use this for routing)
-    if (data.payment_method) {
-      payload.payment_method = data.payment_method;
-    }
 
     log(`Korapay Payout Request: ${formatPayload(payload)}`);
 
