@@ -416,7 +416,17 @@ const webhookHandlers = {
 // ==================================================
 
 // POST /api/pay
-router.post('/pay', async (req, res) => {
+//
+// Task 42 Part c (per Part b-a-ii's verdict) — protected the same way
+// /payout already is. Confirmed via Part b-a-i's own investigation:
+// this route has exactly one real caller anywhere across the apps
+// that use this backend (Mavins-web's `initialize-payment` Supabase
+// Edge Function, server-to-server, secret held in `Deno.env`) — the
+// same trusted-caller shape that already justified this middleware on
+// /payout. That Edge Function needs updating to actually send
+// `X-Internal-Api-Key` — see this task's own handover.md note; this
+// commit only covers this backend's own side of the change.
+router.post('/pay', requireInternalApiKey, async (req, res) => {
   try {
     const { action, provider, amount, customer, currency, reference, payment_currency, settlement_currency, channels, default_channel } = req.body;
 

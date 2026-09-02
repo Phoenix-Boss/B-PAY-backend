@@ -55,7 +55,7 @@ export function requireInternalApiKey(req, res, next) {
     crypto.timingSafeEqual(configuredBuffer, providedBuffer);
 
   if (!valid) {
-    log('requireInternalApiKey: invalid key provided for a payout-adjacent route', 'error');
+    log('requireInternalApiKey: invalid key provided for a protected internal route', 'error');
     return res.status(401).json({ status: 'error', message: 'Invalid X-Internal-Api-Key' });
   }
 
