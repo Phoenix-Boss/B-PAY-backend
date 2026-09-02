@@ -3,7 +3,22 @@
 > **▶ START HERE — read this box only, then go straight to work. Skip
 > everything else below unless you get stuck.**
 >
-> **Newest note (2026-09-02, latest of all) — Part b-a fully resolved:
+> **Newest note (2026-09-02, latest of all) — Part c-a done:
+> `POST /pay` now requires `requireInternalApiKey`, same as `/payout`.**
+> **⚠️ DO NOT DEPLOY THIS ALONE — read before pushing to production.**
+> Mavins-web's `initialize-payment` Edge Function (the one confirmed
+> real caller of `/pay`) does not send the new `X-Internal-Api-Key`
+> header yet — that's Part c-b, a separate cross-repo change, not done
+> yet. Deploying this backend's change to production before Part c-b
+> lands means every real checkout-initialization attempt starts
+> failing with 401 immediately. Deploy both together, or c-b first —
+> never this alone. Full detail, including what Part c-b actually
+> needs, in Task 42's own "Part c-b" entry. **Next: Part c-b** (urgent,
+> in Mavins-web) **or Part b-b** (`/verify`/`/banks`'s own
+> investigation, independent of c-b) **or the still-open webhook-
+> handler/verification-API gap** from two notes below.
+>
+> **Newest note (2026-09-02, previous) — Part b-a fully resolved:
 > i (facts) done previously, ii (verdict) done this session — extend
 > `requireInternalApiKey` to `/pay`.** Based directly on b-a-i's
 > confirmed facts (exactly one caller, Mavins-web's `initialize-payment`
@@ -2465,7 +2480,7 @@ nothing further to decide there.)
 
 ---
 
-## Task 42 — CRITICAL: POST /payout had zero authentication — Part A fixed; Part B split, payload-shape bug found AND fixed, response-parsing corrected; auth-extension question split further, `/pay` half fully resolved (extend it), `/verify`/`/banks` half + implementation still open [x] (Part A + Part B's amount-verify + payload-shape + response-parsing + b-a's facts-and-verdict)
+## Task 42 — CRITICAL: POST /payout had zero authentication — Part A fixed; Part B split, payload-shape bug found AND fixed, response-parsing corrected; `/pay` auth-extension implemented on this side (Part c-a), cross-repo c-b urgent-not-done; `/verify`/`/banks` (Part b-b) still open [x] (Part A + Part B's amount-verify + payload-shape + response-parsing + b-a's facts-and-verdict + c-a)
 
 **Found by a Mavins-web session, flagged there instead of here (the
 wrong repo — the vulnerable code lives in this one), confirmed
@@ -2800,12 +2815,41 @@ but Part b-b should still do its own dedicated, deliberate check
 b-a-i's greps were scoped to confirm `/pay`'s caller specifically, not
 built to be an exhaustive audit of these two routes.
 
-### Part c — implement whatever Part b concludes [ ]
+### Part c — implement whatever Part b concludes [ ] (split into a/b, per the standing mandatory splitting rule — a done, b not started)
 
-Not started; depends on Part b's answer. **Once this covers
-`/pay`/`/verify` too (if that turns out to be the right call) —
-remember Mavins-web's own server-side callers will need the new
-`X-Internal-Api-Key` header added to their own requests, a cross-repo
-change, not just this one.**
+### Part c-a — this backend's own side: protect `/pay` with `requireInternalApiKey` [x]
+
+**Done this session (2026-09-02), commit `d8615c0`.** `router.post('/pay', ...)`
+now has the same `requireInternalApiKey` middleware `/payout` already
+had, per Part b-a-ii's verdict. Also fixed, in the same commit since
+it's directly touched: the middleware's own rejection log hardcoded
+"payout-adjacent" in its wording — now generic, since it guards two
+routes now, not one. Verified via `node --check` on both changed files
+plus a throwaway functional smoke test (real `requireInternalApiKey`
+imported into a minimal Express app, `/api/pay` hit three ways): no
+key → 401; wrong key → 401; correct key → reaches the handler. All
+three passed.
+
+### Part c-b — cross-repo: Mavins-web's `initialize-payment` Edge Function must send the new header [ ]
+
+**Not started — and urgent once Part c-a deploys, not just "nice to
+have eventually."** This backend's `/pay` route now rejects any
+request without a valid `X-Internal-Api-Key` header. Mavins-web's
+`supabase/functions/initialize-payment/index.ts` — the one confirmed
+real caller (Part b-a-i) — does not send this header today. **The
+moment this backend's Part c-a change deploys to production, that
+Edge Function's every call to `/api/pay` will start failing with 401,
+breaking every real checkout-initialization attempt**, until this part
+is also done. This is not an optional follow-up; it's the other
+required half of the same change, split into its own part only
+because it's a different repository, not because it can safely wait.
+
+Needs: a new Supabase secret on Mavins-web's project (matching value
+to whatever `INTERNAL_API_KEY` is set to on this backend's Render
+dashboard), and that Edge Function's `fetch(...api/pay...)` call
+updated to attach it as `X-Internal-Api-Key`. **Recommend deploying
+Part c-a and Part c-b together, or c-b first** — never Part c-a alone
+to production ahead of c-b, given the outage this specific ordering
+would cause.
 
 ---
