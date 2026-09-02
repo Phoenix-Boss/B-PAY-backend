@@ -3,40 +3,33 @@
 > **▶ START HERE — read this box only, then go straight to work. Skip
 > everything else below unless you get stuck.**
 >
-> **Newest note (2026-09-01, latest of all) — Task 42 Part B, CRITICAL
-> payload-shape bug FIXED, split into a/b, only a done.** Part a
-> (previous session) confirmed the amount-unit convention was correct
-> but found `processPayout()`'s entire request shape didn't match
-> Korapay's real Payout API — everything needed nesting under a
-> `destination` object, `destination.type` never set, flat top-level
-> payload instead. **Fixed this session**, independently verified
-> against two sources (Korapay's own docs page + a community Elixir
-> client library's published type spec, agreeing with each other) —
-> `destination: { type, amount, currency, narration, bank_account:
-> { bank, account }, customer: { email, name?, phone? } }`, `type`
-> explicitly sent (defaults to `bank_account` per Korapay's own docs
-> if omitted, but no reason to rely on an undocumented default),
-> `customer.email` now a **required**, throw-before-request field
-> (previously silently optional, which itself would have caused a
-> rejection under the real schema). Verified via `node --check` +
-> 4 functional test cases, all passing — full nested shape correct, no
-> stray top-level fields, `mobile_money` type override works, no
-> leaked `undefined` keys when `name`/`phone` are omitted, missing
-> email throws before any request is built. **Next: Part b** — the
-> response-parsing side was deliberately NOT touched this session
-> (Part a's own scope was the outgoing request shape only) — Korapay's
-> real payout response example is a flat object (`amount`, `fee`,
-> `currency`, `status` as a *string* like `"processing"`, not a
-> boolean), which the current `!responseData.status` check may not be
-> validating correctly since a truthy string like `"processing"` would
-> pass that check regardless of actual outcome — needs verification
-> against the real response envelope shape before this route can be
-> trusted end-to-end, same rigor just applied to the request side.
-> Also still open from Part a: the TZS-in-payout-currency-list
-> discrepancy, and Part B's original items 1 (auth extension to other
-> routes) as Part b/c of the earlier split — check this repo's own
-> section-level detail for how these separate splits relate before
-> assuming which "Part b" is meant.
+> **Newest note (2026-09-02, latest of all) — the response-parsing "b"
+> flagged below is now built, correcting a wrong guess from the
+> session that flagged it.** Re-fetched Korapay's own payout docs
+> directly rather than trust the prior session's characterization —
+> the real shape is two levels, not a flat string: top-level `status`
+> genuinely IS a boolean (the existing check was already correct for
+> that), and a SEPARATE field, `data.status`, is the string
+> (`"processing"` in Kora's own documented example) this code never
+> looked at at all. Fixed: `"processing"` is now explicitly treated as
+> the normal, expected, non-error outcome (Kora's own docs are clear
+> payout confirmation is asynchronous); a new defensive check throws
+> on `data.status === 'failed'` (a real, if less common, synchronous
+> failure the old code would have silently swallowed as success); logs
+> now say explicitly what Kora's transaction status actually is,
+> instead of an unqualified "Payout success" for a merely-accepted
+> transaction. Verified via `node --check` + 6 functional test cases,
+> all passing. **Real, separate gaps surfaced (not fixed) by this
+> work, flagged rather than silently left implicit: no webhook handler
+> for payout completion anywhere in this repo, and no Payout
+> Verification API call either** — without either, this backend has no
+> way to ever learn a `"processing"` payout's true final outcome.
+> **Next: Part b** (is extending `requireInternalApiKey` to
+> `/pay`/`/verify`/`/banks` even appropriate — a design question, not
+> an implementation task) **or building the missing webhook handler /
+> verification call just flagged** — both genuinely open, pick
+> whichever the product owner prioritizes. Full write-up under Task
+> 42's own "The 'b' this split implies" section.
 >
 > **Newest note (2026-09-01, previous) — Task 42 Part A: CRITICAL
 > security fix, `POST /payout` had zero authentication, now fixed.**
@@ -2433,7 +2426,7 @@ nothing further to decide there.)
 
 ---
 
-## Task 42 — CRITICAL: POST /payout had zero authentication — Part A fixed; Part B split, payload-shape bug found AND fixed, auth-extension (b/c) still open [x] (Part A + Part B's amount-verify + payload-shape fix)
+## Task 42 — CRITICAL: POST /payout had zero authentication — Part A fixed; Part B split, payload-shape bug found AND fixed, response-parsing corrected, auth-extension (b/c) still open [x] (Part A + Part B's amount-verify + payload-shape + response-parsing fixes)
 
 **Found by a Mavins-web session, flagged there instead of here (the
 wrong repo — the vulnerable code lives in this one), confirmed
@@ -2597,19 +2590,76 @@ it doesn't add an `undefined`-valued key the way a plain conditional
 assignment might); missing `customer.email` throws before payload
 construction.
 
-**Deliberately NOT touched, this is "only a" — the "b" this split
-implies:** the response-parsing side. Korapay's own real payout
-response example is a flat object with **`status` as a string**
-(e.g. `"processing"`, `"success"`), not the `{status: true/false,
-message, data: {...}}` boolean-envelope shape the collection endpoints
-return — the current code's `!responseData.status` check may not be
-validating what it looks like it's validating, since a truthy string
-like `"processing"` passes that check regardless of the actual
-outcome. Not fixed here — flagging clearly rather than guessing at the
-right check without re-confirming the exact response envelope shape
-first, same rigor just applied to the request side. Also still open,
-unchanged from Part a's original notes above: the TZS currency-list
-discrepancy, and the XAF/XOF rounding-multiple rule.
+**Deliberately NOT touched this session — flagged, not fixed:** the
+response-parsing side, believed at the time to be a flat
+`status`-as-string object. **That guess was corrected the next
+session — see "The 'b' this split implies — now built" below, which
+supersedes this paragraph's own framing.** Also still open, unchanged
+from Part a's original notes above: the TZS currency-list discrepancy,
+and the XAF/XOF rounding-multiple rule.
+
+### The "b" this split implies — now built (2026-09-02)
+
+**Re-fetched `developers.korapay.com/docs/payout-via-api` directly
+before writing anything — the prior session's guess (a flat
+`status`-as-string object) was wrong.** The real shape, straight from
+Kora's own documented example, is **two levels**: `responseData.status`
+(top-level) genuinely IS a boolean — `true`/`false`, "did Kora accept
+this API call" — and the existing `!responseData.status` check was
+*already correct* for that. What was actually missing: a completely
+separate field, `responseData.data.status`, a STRING describing the
+*transaction's own* lifecycle state (`"processing"` in Kora's own
+example; presumably `"success"`/`"failed"` too, though only
+`"processing"` appears in their documented sample — a payout is rarely
+resolved synchronously). This code never looked at that field at all.
+
+**Fixed in `providers/korapay.js#processPayout()`:**
+- `"processing"` is treated as the **normal, expected** outcome, not
+  an error — Kora's own docs are explicit that payout confirmation is
+  asynchronous ("Receive confirmation via webhook when the payout is
+  completed" / "Query the transaction to get the status"), and
+  separately warn against treating an ambiguous outcome as failure
+  without verifying first (their own "Handling Unexpected Request
+  Errors" section: an unexpected error "may have been accepted and
+  processed by Kora" regardless). `processPayout()`'s own job now ends
+  at "Kora accepted the request," documented explicitly in a code
+  comment — it does NOT confirm money actually moved, and callers must
+  not treat its return as "payout completed." **Neither a webhook
+  handler nor a Payout Verification API call exists anywhere in this
+  codebase yet** — a real, separate gap this fix surfaces but doesn't
+  close; flagged here rather than silently assumed handled elsewhere.
+- **New, defensive check added:** `data.status === 'failed'` (not
+  shown in Kora's own documented example, but plausible for an
+  immediate synchronous rejection — e.g. an obviously invalid
+  destination) now throws a real error. Outer `status: true` only ever
+  confirmed the API call was well-formed and accepted, never that the
+  transfer would succeed — treating this combination as silent success
+  would have been a real-money bug, not a cosmetic one.
+- A log line now explicitly states the transaction's `data.status`
+  value and repeats, inline, that this is an acknowledgement, not
+  final confirmation — so anyone reading production logs isn't misled
+  by a log line that used to just say "Payout success" for a merely
+  `"processing"` transaction.
+
+**Verified:** `node --check` on the modified file. A standalone
+functional test, 6 cases (matching Kora's own documented "processing"
+example; a hypothetical synchronous "success"; a synchronous
+`data.status: 'failed'` with outer `status: true` — the new defensive
+check; an outer `status: false` API-level rejection; an HTTP-level
+502-style failure; a response with no `data.status` field at all,
+confirming that doesn't spuriously throw) — **all 6 correct**.
+
+**Deliberately NOT built — flagged as real, separate gaps, not
+silently assumed out of scope:**
+- No webhook handler for payout completion/failure events anywhere in
+  this repo. Without one, this backend (and by extension Mavins-web)
+  has no way to ever learn a `"processing"` payout's true final
+  outcome short of manually polling the Payout Verification API.
+- No Payout Verification API call implemented either (Kora's own
+  Step 5 in their documented workflow) — the manual-poll fallback for
+  the above doesn't exist yet either.
+- Still open, unchanged: the TZS currency-list discrepancy, and the
+  XAF/XOF rounding-multiple rule (Part a's own notes above).
 
 ### Part b — is extending `requireInternalApiKey` to `/pay`/`/verify`/`/banks` even appropriate? [ ]
 

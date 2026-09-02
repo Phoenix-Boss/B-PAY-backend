@@ -215,9 +215,51 @@ export class Korapay {
 
       const responseData = await response.json();
 
+      // Confirmed directly against developers.korapay.com/docs/payout-via-api
+      // (its own "Payout Response" example) — NOT the earlier flagged
+      // guess that `status` itself was a string. The real shape is
+      // TWO levels: `responseData.status` (top-level) IS a genuine
+      // boolean — "did Kora accept this API call" — and the check
+      // below was already correct for that. What was missing entirely:
+      // `responseData.data.status`, a SEPARATE string field — the
+      // *transaction's* own lifecycle state (`"processing"`,
+      // `"success"`, or presumably `"failed"` — only `"processing"`
+      // is shown in Kora's own example, since a payout is rarely
+      // resolved synchronously). This code never looked at that field
+      // at all before now.
       if (!response.ok || !responseData.status) {
         throw providerError(responseData.message || 'Korapay payout failed');
       }
+
+      // `"processing"` is the NORMAL, EXPECTED outcome here, not a
+      // problem — Kora's own docs are explicit that a payout is
+      // confirmed asynchronously ("Receive confirmation via webhook
+      // when the payout is completed" / "Query the transaction to get
+      // the status") and warn AGAINST treating an ambiguous outcome as
+      // failed without verifying first ("Handling Unexpected Request
+      // Errors": an unexpected error "may have been accepted and
+      // processed by Kora" regardless — verify, don't assume). This
+      // function's job ends at "Kora accepted the request" — it does
+      // NOT confirm the money actually moved. Callers of processPayout()
+      // must not treat this return value as "payout completed"; the
+      // real outcome arrives via webhook or a later Payout Verification
+      // API call, neither of which exists in this codebase yet (see
+      // handover.md's own note on this gap).
+      //
+      // The one synchronous outcome this DOES treat as a real,
+      // immediate failure: `data.status === 'failed'`. Not shown in
+      // Kora's own documented example (which only shows `"processing"`),
+      // but a same-request synchronous rejection (e.g. an immediately
+      // invalid destination) is a plausible outcome for a `status:
+      // true` / `data.status: 'failed'` combination — outer `status`
+      // only confirms the API call itself was well-formed and
+      // accepted, not that the transfer will succeed. Treating this as
+      // silent success would be a real-money bug, not a cosmetic one.
+      if (responseData.data?.status === 'failed') {
+        throw providerError(responseData.data?.message || responseData.message || 'Korapay payout failed');
+      }
+
+      log(`Korapay Payout accepted — transaction status: '${responseData.data?.status}' (this is Kora's acknowledgement that the request was received, NOT final confirmation the transfer completed — see this function's own comment)`);
 
       return responseData;
     }, 'korapay');
