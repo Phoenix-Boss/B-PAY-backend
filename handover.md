@@ -3,7 +3,25 @@
 > **▶ START HERE — read this box only, then go straight to work. Skip
 > everything else below unless you get stuck.**
 >
-> **Newest note (2026-09-02, latest of all) — Part b split into a/b,
+> **Newest note (2026-09-02, latest of all) — Part b-a fully resolved:
+> i (facts) done previously, ii (verdict) done this session — extend
+> `requireInternalApiKey` to `/pay`.** Based directly on b-a-i's
+> confirmed facts (exactly one caller, Mavins-web's `initialize-payment`
+> Edge Function, server-to-server, secret in `Deno.env`, never
+> client-reachable — the same trust level `/payout`'s own caller
+> already has): no legitimate reason for `/pay` to stay reachable
+> unauthenticated. Scope note: this verdict covers `/pay` only —
+> `/verify`/`/banks` are Part b-b's own still-open question, not
+> decided here. **Not implemented yet** — adding the middleware to
+> `routes.js`, generating the shared secret, and updating Mavins-web's
+> Edge Function to send `X-Internal-Api-Key` is Part c's job, a
+> cross-repo change. **Next: Part c for `/pay`** (can proceed now,
+> independently of Part b-b), **or Part b-b** (`/verify`/`/banks`'s own
+> dedicated investigation, not yet started), **or the still-separately-
+> open webhook-handler/verification-API gap** flagged two notes below —
+> three genuinely independent open threads.
+>
+> **Newest note (2026-09-02, previous) — Part b split into a/b,
 > Part b-a split further into i/ii; only b-a-i done (fact-finding
 > only, no verdict rendered yet).** Re-confirmed via fresh clones of
 > both Mavins-web and Velune: exactly one caller of `/api/pay` exists
@@ -2447,7 +2465,7 @@ nothing further to decide there.)
 
 ---
 
-## Task 42 — CRITICAL: POST /payout had zero authentication — Part A fixed; Part B split, payload-shape bug found AND fixed, response-parsing corrected; auth-extension question split further (b-a-i fact-finding done), verdict + c still open [x] (Part A + Part B's amount-verify + payload-shape + response-parsing + b-a-i fact-finding)
+## Task 42 — CRITICAL: POST /payout had zero authentication — Part A fixed; Part B split, payload-shape bug found AND fixed, response-parsing corrected; auth-extension question split further, `/pay` half fully resolved (extend it), `/verify`/`/banks` half + implementation still open [x] (Part A + Part B's amount-verify + payload-shape + response-parsing + b-a's facts-and-verdict)
 
 **Found by a Mavins-web session, flagged there instead of here (the
 wrong repo — the vulnerable code lives in this one), confirmed
@@ -2682,7 +2700,7 @@ silently assumed out of scope:**
 - Still open, unchanged: the TZS currency-list discrepancy, and the
   XAF/XOF rounding-multiple rule (Part a's own notes above).
 
-### Part b — is extending `requireInternalApiKey` to `/pay`/`/verify`/`/banks` even appropriate? [ ] (split into a/b, per the standing mandatory splitting rule — a further split into i/ii, only i done)
+### Part b — is extending `requireInternalApiKey` to `/pay`/`/verify`/`/banks` even appropriate? [ ] (split into a/b — a fully resolved via i/ii, b not started)
 
 Original concern stands as the framing question: `/pay` and `/verify`
 may need to stay reachable from contexts `/payout` never should be.
@@ -2691,7 +2709,7 @@ lines, since `/pay` and `/verify`/`/banks` turn out to have completely
 different evidence available (see Part b-a below) — bundling them
 risked a single verdict papering over that difference.
 
-### Part b-a — investigate `/pay` specifically [ ] (split into i/ii — i done, ii not started)
+### Part b-a — investigate `/pay` specifically [x] (split into i/ii — both done: i = facts, ii = verdict)
 
 Split further per the same rule, into a pure fact-finding half (i)
 and the actual verdict that depends on it (ii) — kept deliberately
@@ -2735,9 +2753,41 @@ secret, attach an `X-Internal-Api-Key` header) — a cross-repo
 follow-up if so, not something this backend's own code change alone
 would complete.
 
-### Part b-a-ii — render the actual recommendation for `/pay`, based on Part b-a-i's facts [ ]
+### Part b-a-ii — render the actual recommendation for `/pay`, based on Part b-a-i's facts [x] (documentation only, no code changed)
 
-Not started.
+**Done this session (2026-09-02) — recommendation: yes, extend
+`requireInternalApiKey` to `/pay`.**
+
+Part b-a-i's confirmed facts leave no real ambiguity here: `/pay` has
+exactly one caller anywhere across the two apps that could plausibly
+use this backend (Mavins-web, Velune), and that caller is a Supabase
+Edge Function — server-to-server, holding whatever secret it needs in
+`Deno.env`, never exposed to a browser or any client-reachable
+context. That is structurally identical to `/payout`'s own caller,
+which already justified adding this exact same middleware in Task 42
+Part A. There is no legitimate current use case for `/pay` being
+reachable by an unauthenticated request — the one real consumer is
+already positioned to hold and send an internal API key, the same way
+it already holds `BPAY_BACKEND_URL` itself.
+
+**Scope note — this verdict covers `/pay` only, deliberately.**
+`/verify` and `/banks` are Part b-b's own question, not decided here
+even though b-a-i's grep pass happened to touch on them in passing —
+they could have a legitimate reason to stay open (e.g. if either is
+ever meant to be reachable from a context `/pay`/`/payout` aren't) that
+this investigation never actually checked for.
+
+**Not done here, per Part b/c's own existing split — implementation is
+Part c's job:** actually adding the `requireInternalApiKey` middleware
+to the `/pay` route in `routes.js`, generating/confirming the shared
+secret value, and updating Mavins-web's `initialize-payment/index.ts`
+to read that secret and attach `X-Internal-Api-Key` to its request —
+a cross-repo change, not something this commit does.
+
+Part b (both halves) is now fully resolved as an investigation: `/pay`
+→ extend the middleware (this entry); `/verify`/`/banks` → still open,
+Part b-b not started. Part c can proceed for `/pay` immediately; it
+should wait on Part b-b before touching the other two routes.
 
 ### Part b-b — investigate `/verify` and `/banks` specifically [ ]
 
