@@ -3,20 +3,21 @@
 > **▶ START HERE — read this box only, then go straight to work. Skip
 > everything else below unless you get stuck.**
 >
-> **Newest note (2026-09-02, latest of all) — Part c-a done:
-> `POST /pay` now requires `requireInternalApiKey`, same as `/payout`.**
-> **⚠️ DO NOT DEPLOY THIS ALONE — read before pushing to production.**
-> Mavins-web's `initialize-payment` Edge Function (the one confirmed
-> real caller of `/pay`) does not send the new `X-Internal-Api-Key`
-> header yet — that's Part c-b, a separate cross-repo change, not done
-> yet. Deploying this backend's change to production before Part c-b
-> lands means every real checkout-initialization attempt starts
-> failing with 401 immediately. Deploy both together, or c-b first —
-> never this alone. Full detail, including what Part c-b actually
-> needs, in Task 42's own "Part c-b" entry. **Next: Part c-b** (urgent,
-> in Mavins-web) **or Part b-b** (`/verify`/`/banks`'s own
-> investigation, independent of c-b) **or the still-open webhook-
-> handler/verification-API gap** from two notes below.
+> **Newest note (2026-09-02, latest of all) — Part c-b confirmed done
+> in Mavins-web (Task 63, commit `4a95a52`), correcting a stale note
+> here that said otherwise. This backend's own `/pay` route change
+> (Part c-a) and Mavins-web's header-sending change (Part c-b) are
+> BOTH code-complete and consistent — verified by reading the actual
+> code on both sides directly, not trusting either repo's commit
+> message alone.** The remaining risk is now purely operational, not
+> code: both sides need `BPAY_INTERNAL_API_KEY` (Mavins-web) and
+> `INTERNAL_API_KEY` (this backend, Render) set to the **same value**,
+> and both need to actually be deployed — together, or c-b first,
+> never Part c-a alone. Neither sandbox can perform that step. Full
+> detail in Task 42's own "Part c-b" entry. **Next: Part b-b**
+> (`/verify`/`/banks`'s own investigation, independent of c-b) **or
+> the still-open webhook-handler/verification-API gap** from two notes
+> below.
 >
 > **Newest note (2026-09-02, previous) — Part b-a fully resolved:
 > i (facts) done previously, ii (verdict) done this session — extend
@@ -2830,26 +2831,40 @@ imported into a minimal Express app, `/api/pay` hit three ways): no
 key → 401; wrong key → 401; correct key → reaches the handler. All
 three passed.
 
-### Part c-b — cross-repo: Mavins-web's `initialize-payment` Edge Function must send the new header [ ]
+### Part c-b — cross-repo: Mavins-web's `initialize-payment` Edge Function must send the new header [x]
 
-**Not started — and urgent once Part c-a deploys, not just "nice to
-have eventually."** This backend's `/pay` route now rejects any
-request without a valid `X-Internal-Api-Key` header. Mavins-web's
-`supabase/functions/initialize-payment/index.ts` — the one confirmed
-real caller (Part b-a-i) — does not send this header today. **The
-moment this backend's Part c-a change deploys to production, that
-Edge Function's every call to `/api/pay` will start failing with 401,
-breaking every real checkout-initialization attempt**, until this part
-is also done. This is not an optional follow-up; it's the other
-required half of the same change, split into its own part only
-because it's a different repository, not because it can safely wait.
+**Done — in Mavins-web, not this repo. This entry was stale; corrected
+this session after finding the fix already shipped there while
+pulling latest for an unrelated task.** Mavins-web's own
+`handover.md` → **Task 63** (commit `4a95a52`,
+"Task 63 — send X-Internal-Api-Key from initialize-payment, urgent
+B-Pay-backend Task 42 Part c-b") built this exactly as specified
+below, verified by reading both the code and that repo's own write-up
+directly rather than trusting the commit message alone:
+`supabase/functions/initialize-payment/index.ts` now reads a new
+secret, `BPAY_INTERNAL_API_KEY`, and sends it as `X-Internal-Api-Key`
+on its existing `fetch()` call to this backend's `/api/pay` — header
+name confirmed to match `requireInternalApiKey`'s own
+`req.headers['x-internal-api-key']` check exactly (Express lowercases
+header names, so the casing difference is not a mismatch). Fails
+closed with a `500` + specific error if the secret isn't set, same
+posture as this backend's own middleware.
 
-Needs: a new Supabase secret on Mavins-web's project (matching value
-to whatever `INTERNAL_API_KEY` is set to on this backend's Render
-dashboard), and that Edge Function's `fetch(...api/pay...)` call
-updated to attach it as `X-Internal-Api-Key`. **Recommend deploying
-Part c-a and Part c-b together, or c-b first** — never Part c-a alone
-to production ahead of c-b, given the outage this specific ordering
-would cause.
+**What's NOT done, and can't be from either sandbox — a live
+deployment/secrets-configuration step, not a code gap:**
+```
+supabase secrets set BPAY_INTERNAL_API_KEY=<same value as this backend's own INTERNAL_API_KEY>
+supabase functions deploy initialize-payment
+```
+This value must be **identical** to this backend's own
+`INTERNAL_API_KEY` Render env var — one shared secret, not two
+independent ones. If `INTERNAL_API_KEY` doesn't have a value set on
+Render yet, generate one and set it on **both** sides in the same
+sitting. Deploy Mavins-web's Edge Function alongside (or before) this
+backend's own Part c-a rollout — never after. **This is the one
+remaining real risk**: the code on both sides is correct and
+consistent, but until both secrets are actually set to the same value
+and both sides are actually deployed, the ordering warning above still
+applies in spirit — an actual live gap, not a documentation one.
 
 ---
