@@ -121,6 +121,250 @@ export class Korapay {
     return result;
   }
 
+
+  // ==================================================
+  // 💸 PAYOUT / DISBURSEMENT
+  // ==================================================
+  // Korapay's disburse endpoint for sending money OUT to bank
+  // accounts or mobile money wallets. This is the outbound flow
+  // (paying listeners, refunds, vendor settlements) vs the inbound
+  // collection flow in processPayment() above.
+  //
+  // Endpoint: POST /api/v1/transactions/disburse
+  // Docs: developers.korapay.com/docs/payout-via-api
+  //
+  // Required fields:
+  //   - amount (number): in base currency units (same as collection)
+  //   - currency (string): 3-letter code, e.g. 'NGN'
+  //   - reference (string): unique transaction reference
+  //   - bank_code (string): recipient bank code (from Korapay's bank list)
+  //   - account_number (string): recipient account number
+  //   - narration (string): description/purpose of the payout
+  //
+  // Optional fields:
+  //   - customer (object): { name, email } — for notification/receipt
+  //   - payment_method (string): 'bank_transfer' | 'mobile_money' | etc.
+  //
+  // The "tag" from Nova Bank maps directly to account_number here.
+  // Nova Bank is a virtual-account provider; their "tag" IS the
+  // account number Korapay's disburse endpoint expects. No separate
+  // Nova Bank API call is needed — Korapay handles the full rail.
+  //
+  // Task 42 Part B-a (handover.md) — CRITICAL payload-shape fix. Every
+  // real payout call this code made before this fix almost certainly
+  // failed outright: Korapay's real Payout API requires the entire
+  // destination-specific payload nested under a single `destination`
+  // object, with `destination.type` present (defaults to
+  // 'bank_account' per Korapay's own client library docs if omitted,
+  // but sent explicitly here anyway — no reason to rely on an
+  // undocumented-in-the-official-reference default when the value is
+  // always known at call time) and `destination.customer.email`
+  // required, not optional. Independently verified against
+  // developers.korapay.com/docs/payout-via-api AND a community Elixir
+  // client library's own published type spec (two independent
+  // sources agreeing, not one) before writing this — both confirm the
+  // exact same shape: `destination: { type, amount, currency,
+  // narration, bank_account: { bank, account }, customer: { email,
+  // name?, phone? } }`. The previous flat top-level payload
+  // (`amount`, `currency`, `bank_code`, `account_number` all as
+  // siblings of `reference`) was never a real Korapay payout request
+  // shape at any point — this was a genuine bug, not a schema change
+  // on Korapay's side.
+  async processPayout(data) {
+    const ref = data.reference || generateReference('korapay-payout');
+    const amount = convertAmountForProvider(data.amount, 'korapay', data.currency);
+
+    // customer.email is REQUIRED by Korapay's real schema (unlike the
+    // old flat payload, which treated the whole customer object as
+    // optional) — fail loudly here rather than letting Korapay reject
+    // the request with a less specific error further downstream.
+    if (!data.customer?.email) {
+      throw providerError('customer.email is required for Korapay payouts');
+    }
+
+    const payload = {
+      reference: ref,
+      destination: {
+        type: data.payment_method === 'mobile_money' ? 'mobile_money' : 'bank_account',
+        amount,
+        currency: data.currency,
+        narration: data.narration || 'Payout from Mavins',
+        bank_account: {
+          bank: data.bank_code,
+          account: data.account_number,
+        },
+        customer: {
+          email: data.customer.email,
+          ...(data.customer.name && { name: data.customer.name }),
+          ...(data.customer.phone && { phone: data.customer.phone }),
+        },
+      },
+    };
+
+    log(`Korapay Payout Request: ${formatPayload(payload)}`);
+
+    const result = await handleApiCall(async () => {
+      const response = await fetch(`${this.baseUrl}/api/v1/transactions/disburse`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${this.secretKey}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(payload),
+      });
+
+      const responseData = await response.json();
+
+      // Confirmed directly against developers.korapay.com/docs/payout-via-api
+      // (its own "Payout Response" example) — NOT the earlier flagged
+      // guess that `status` itself was a string. The real shape is
+      // TWO levels: `responseData.status` (top-level) IS a genuine
+      // boolean — "did Kora accept this API call" — and the check
+      // below was already correct for that. What was missing entirely:
+      // `responseData.data.status`, a SEPARATE string field — the
+      // *transaction's* own lifecycle state (`"processing"`,
+      // `"success"`, or presumably `"failed"` — only `"processing"`
+      // is shown in Kora's own example, since a payout is rarely
+      // resolved synchronously). This code never looked at that field
+      // at all before now.
+      if (!response.ok || !responseData.status) {
+        throw providerError(responseData.message || 'Korapay payout failed');
+      }
+
+      // `"processing"` is the NORMAL, EXPECTED outcome here, not a
+      // problem — Kora's own docs are explicit that a payout is
+      // confirmed asynchronously ("Receive confirmation via webhook
+      // when the payout is completed" / "Query the transaction to get
+      // the status") and warn AGAINST treating an ambiguous outcome as
+      // failed without verifying first ("Handling Unexpected Request
+      // Errors": an unexpected error "may have been accepted and
+      // processed by Kora" regardless — verify, don't assume). This
+      // function's job ends at "Kora accepted the request" — it does
+      // NOT confirm the money actually moved. Callers of processPayout()
+      // must not treat this return value as "payout completed"; the
+      // real outcome arrives via webhook or a later Payout Verification
+      // API call, neither of which exists in this codebase yet (see
+      // handover.md's own note on this gap).
+      //
+      // The one synchronous outcome this DOES treat as a real,
+      // immediate failure: `data.status === 'failed'`. Not shown in
+      // Kora's own documented example (which only shows `"processing"`),
+      // but a same-request synchronous rejection (e.g. an immediately
+      // invalid destination) is a plausible outcome for a `status:
+      // true` / `data.status: 'failed'` combination — outer `status`
+      // only confirms the API call itself was well-formed and
+      // accepted, not that the transfer will succeed. Treating this as
+      // silent success would be a real-money bug, not a cosmetic one.
+      if (responseData.data?.status === 'failed') {
+        throw providerError(responseData.data?.message || responseData.message || 'Korapay payout failed');
+      }
+
+      log(`Korapay Payout accepted — transaction status: '${responseData.data?.status}' (this is Kora's acknowledgement that the request was received, NOT final confirmation the transfer completed — see this function's own comment)`);
+
+      return responseData;
+    }, 'korapay');
+
+    log(`Korapay Payout Response: ${formatPayload(result)}`);
+    return result;
+  }
+
+  // Task 42 "the missing verification call" — split into i/ii per
+  // direct instruction. Part i = this method only, built here. Part
+  // ii = wiring it into an actual route, NOT built this session.
+  // Directly answers processPayout()'s own flagged gap: "no Payout
+  // Verification API call... no way to ever learn a 'processing'
+  // payout's true final outcome."
+  //
+  // Endpoint confidence, stated explicitly rather than left implicit:
+  // this path is NOT a directly-quoted string from Korapay's own
+  // docs the way processPayout()'s request/response shapes are (that
+  // page never states the single-payout verify path outright, only
+  // links to a separate anchor-based API reference this session
+  // couldn't resolve to a literal URL). It's a strong pattern-match
+  // instead, evidenced by a real, directly-confirmed sibling: Kora's
+  // own Bulk Payouts docs show `POST .../transactions/disburse/bulk`
+  // creates a batch and `GET .../transactions/bulk/:batch_reference`
+  // verifies it — the same "transactions" resource family
+  // processPayout() already POSTs to. Applying that same create/
+  // verify pairing to the single (non-bulk) case, dropping the
+  // "bulk/" segment: `GET .../transactions/{reference}`. Recommend
+  // one real sandbox call to confirm this before trusting it in
+  // production — flagged here so that verification step isn't
+  // silently skipped later.
+  async verifyPayout(reference) {
+    log(`Korapay Payout Verification Request for: ${reference}`);
+
+    const result = await handleApiCall(async () => {
+      const response = await fetch(
+        `${this.baseUrl}/api/v1/transactions/${encodeURIComponent(reference)}`,
+        {
+          method: 'GET',
+          headers: {
+            'Authorization': `Bearer ${this.secretKey}`,
+            'Content-Type': 'application/json',
+          },
+        }
+      );
+
+      const responseData = await response.json();
+
+      // Same two-level shape as processPayout()'s own response,
+      // confirmed this session — outer `status` boolean = "did Kora
+      // accept/find this request", inner `data.status` string = the
+      // transaction's real lifecycle state. Unlike processPayout(),
+      // a verify call's whole PURPOSE is to learn that lifecycle
+      // state, including 'failed' — so this function does NOT throw
+      // on `data.status === 'failed'` the way processPayout() does;
+      // a failed payout is a normal, expected, successfully-verified
+      // answer to "what happened to this payout", not an error
+      // calling this function. Only a genuine API-level rejection
+      // (bad reference, auth failure, etc. — outer `status: false`
+      // or a non-2xx) throws here.
+      if (!response.ok || !responseData.status) {
+        throw providerError(responseData.message || 'Korapay payout verification failed');
+      }
+
+      return responseData;
+    }, 'korapay');
+
+    log(`Korapay Payout Verification Response — transaction status: '${result.data?.status}'`);
+    return result;
+  }
+
+  // ==================================================
+  // 🏦 BANK LIST (helper for payout recipient setup)
+  // ==================================================
+  // Returns the list of supported banks with their Korapay codes.
+  // Callers use this to map a user's selected bank name → bank_code
+  // for processPayout(). Cached in-memory for 1 hour by default.
+  async getBanks(currency = 'NGN') {
+    log(`Korapay Banks Request for currency: ${currency}`);
+
+    const result = await handleApiCall(async () => {
+      const response = await fetch(
+        `${this.baseUrl}/api/v1/banks?currency=${encodeURIComponent(currency)}`,
+        {
+          method: 'GET',
+          headers: {
+            'Authorization': `Bearer ${this.secretKey}`,
+            'Content-Type': 'application/json',
+          },
+        }
+      );
+
+      const responseData = await response.json();
+
+      if (!response.ok || !responseData.status) {
+        throw providerError(responseData.message || 'Korapay bank list failed');
+      }
+
+      return responseData;
+    }, 'korapay');
+
+    log(`Korapay Banks Response: ${formatPayload(result)}`);
+    return result;
+  }
+
   // ==================================================
   // 🔔 WEBHOOK SIGNATURE VERIFICATION
   // ==================================================

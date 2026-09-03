@@ -3,13 +3,95 @@ import { Paystack } from './providers/paystack.js';
 import { Payscribe } from './providers/payscribe.js';
 import { Juicyway } from './providers/juicyway.js';
 import { Korapay } from './providers/korapay.js';
-import { log, formatPayload, generateReference, getSupportedCurrencies, isValidCurrencyCode, isValidEmail, providerRequiresEmail } from './utils/helpers.js';
+import { log, formatPayload, generateReference, getSupportedCurrencies, isValidCurrencyCode, isValidEmail, providerRequiresEmail, requireInternalApiKey } from './utils/helpers.js';
 import { handleGatewayEvent } from './webhookGateway.js';
 
 const router = express.Router();
 
 // ==================================================
 // 🧠 SMART ROUTING CONFIGURATION
+// ==================================================
+// 💸 PAYOUT / DISBURSEMENT (Task: B-Pay-backend payout flow)
+// ==================================================
+// Outbound money movement — paying listeners, refunds, settlements.
+// Routed to Korapay via ROUTING_RULES.payout above.
+//
+// Body shape:
+//   {
+//     "amount": 5000,
+//     "currency": "NGN",
+//     "bank_code": "057",        // Zenith Bank, from getBanks()
+//     "account_number": "1234567890",  // Nova Bank "tag" = account_number
+//     "narration": "Listener earnings — Aug 2026 cycle",
+//     "reference": "optional-custom-ref",
+//     "customer": { "name": "John Doe", "email": "john@example.com" }
+//   }
+router.post('/payout', requireInternalApiKey, async (req, res) => {
+  try {
+    const { amount, currency, bank_code, account_number, narration, reference, customer, payment_method } = req.body;
+
+    assertValidAmount(amount);
+    assertValidCurrencyFormat(currency);
+
+    if (!bank_code || typeof bank_code !== 'string') {
+      const err = new Error(`'bank_code' is required and must be a non-empty string (received: ${JSON.stringify(bank_code)})`);
+      err.statusCode = 400;
+      throw err;
+    }
+
+    if (!account_number || typeof account_number !== 'string') {
+      const err = new Error(`'account_number' is required and must be a non-empty string (received: ${JSON.stringify(account_number)})`);
+      err.statusCode = 400;
+      throw err;
+    }
+
+    const providerName = req.body.provider || ROUTING_RULES.payout;
+    const provider = getProvider(providerName);
+
+    assertCurrencySupported(providerName, currency);
+
+    const result = await provider.processPayout({
+      amount,
+      currency,
+      bank_code,
+      account_number,
+      narration,
+      reference,
+      customer,
+      payment_method,
+    });
+
+    log(`Payout success via ${providerName}: ${formatPayload(result)}`);
+    res.json({ status: 'success', data: result });
+  } catch (error) {
+    log(`Payout error: ${error.message}`, 'error');
+    res.status(error.statusCode || 500).json({
+      status: 'error',
+      message: clientSafeMessage(error, 'Payout failed'),
+    });
+  }
+});
+
+// GET /banks — returns Korapay's supported bank list for a currency.
+// Query: ?currency=NGN (defaults to NGN)
+router.get('/banks', async (req, res) => {
+  try {
+    const currency = (req.query.currency || 'NGN').toString().toUpperCase();
+    assertValidCurrencyFormat(currency);
+
+    const provider = getProvider('korapay');
+    const result = await provider.getBanks(currency);
+
+    res.json({ status: 'success', data: result });
+  } catch (error) {
+    log(`Banks list error: ${error.message}`, 'error');
+    res.status(error.statusCode || 500).json({
+      status: 'error',
+      message: clientSafeMessage(error, 'Failed to fetch bank list'),
+    });
+  }
+});
+
 // ==================================================
 
 const ROUTING_RULES = {
@@ -334,7 +416,17 @@ const webhookHandlers = {
 // ==================================================
 
 // POST /api/pay
-router.post('/pay', async (req, res) => {
+//
+// Task 42 Part c (per Part b-a-ii's verdict) — protected the same way
+// /payout already is. Confirmed via Part b-a-i's own investigation:
+// this route has exactly one real caller anywhere across the apps
+// that use this backend (Mavins-web's `initialize-payment` Supabase
+// Edge Function, server-to-server, secret held in `Deno.env`) — the
+// same trusted-caller shape that already justified this middleware on
+// /payout. That Edge Function needs updating to actually send
+// `X-Internal-Api-Key` — see this task's own handover.md note; this
+// commit only covers this backend's own side of the change.
+router.post('/pay', requireInternalApiKey, async (req, res) => {
   try {
     const { action, provider, amount, customer, currency, reference, payment_currency, settlement_currency, channels, default_channel } = req.body;
 

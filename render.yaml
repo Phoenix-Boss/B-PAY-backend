@@ -28,3 +28,10 @@ services:
         sync: false
       - key: MAVW_WEBHOOK_FORWARD_SECRET
         sync: false
+      # Internal auth for money-moving routes (POST /payout).
+      # Shared secret, sent as X-Internal-Api-Key by trusted callers
+      # (Mavins-web's own server-side code today). Real value is a
+      # manual product-owner step in Render's dashboard, same class
+      # of action as every other secret above.
+      - key: INTERNAL_API_KEY
+        sync: false

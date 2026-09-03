@@ -3,6 +3,171 @@
 > **▶ START HERE — read this box only, then go straight to work. Skip
 > everything else below unless you get stuck.**
 >
+> **Newest note (2026-09-02, latest of all) — `verifyPayout()` built,
+> closing half of the "no way to learn a payout's true final outcome"
+> gap.** New `providers/korapay.js#verifyPayout(reference)`, mirroring
+> the existing collection-side `verifyTransaction()`. **Endpoint path
+> confidence stated explicitly, weaker than the request/response shape
+> fixes**: not a directly-quoted string from Korapay's docs, but a
+> strong pattern-match from a real confirmed sibling — Bulk Payouts'
+> own `POST .../transactions/disburse/bulk` create +
+> `GET .../transactions/bulk/:batch_reference` verify pairing, applied
+> to the single case by dropping `bulk/`:
+> `GET .../transactions/{reference}`. **Recommend one real sandbox
+> call to confirm before trusting this in production.** Response
+> handling deliberately differs from `processPayout()`'s own on
+> purpose: `verifyPayout()` does NOT throw on `data.status === 'failed'`
+> — a failed payout is a correct, expected *answer* to "what happened,"
+> not an error in asking. Verified via `node --check` + 5 functional
+> test cases, all passing. **Not built: wiring this into an actual
+> route (Part ii)**, so no caller outside this repo can reach it yet.
+> The webhook-handler half of the original gap also remains fully
+> open. **Next: Part ii (wire the route), or the webhook handler, or
+> Part b-b (`/verify`/`/banks`'s own auth-extension question)** —
+> three genuinely open threads, pick whichever the product owner
+> prioritizes. Full write-up under Task 42's own "The missing
+> verification call — part i" section.
+>
+> **Newest note (2026-09-02, latest of all) — Part c-b confirmed done
+> in Mavins-web (Task 63, commit `4a95a52`), correcting a stale note
+> here that said otherwise. This backend's own `/pay` route change
+> (Part c-a) and Mavins-web's header-sending change (Part c-b) are
+> BOTH code-complete and consistent — verified by reading the actual
+> code on both sides directly, not trusting either repo's commit
+> message alone.** The remaining risk is now purely operational, not
+> code: both sides need `BPAY_INTERNAL_API_KEY` (Mavins-web) and
+> `INTERNAL_API_KEY` (this backend, Render) set to the **same value**,
+> and both need to actually be deployed — together, or c-b first,
+> never Part c-a alone. Neither sandbox can perform that step. Full
+> detail in Task 42's own "Part c-b" entry. **Next: Part b-b**
+> (`/verify`/`/banks`'s own investigation, independent of c-b) **or
+> the still-open webhook-handler/verification-API gap** from two notes
+> below.
+>
+> **Newest note (2026-09-02, previous) — Part b-a fully resolved:
+> i (facts) done previously, ii (verdict) done this session — extend
+> `requireInternalApiKey` to `/pay`.** Based directly on b-a-i's
+> confirmed facts (exactly one caller, Mavins-web's `initialize-payment`
+> Edge Function, server-to-server, secret in `Deno.env`, never
+> client-reachable — the same trust level `/payout`'s own caller
+> already has): no legitimate reason for `/pay` to stay reachable
+> unauthenticated. Scope note: this verdict covers `/pay` only —
+> `/verify`/`/banks` are Part b-b's own still-open question, not
+> decided here. **Not implemented yet** — adding the middleware to
+> `routes.js`, generating the shared secret, and updating Mavins-web's
+> Edge Function to send `X-Internal-Api-Key` is Part c's job, a
+> cross-repo change. **Next: Part c for `/pay`** (can proceed now,
+> independently of Part b-b), **or Part b-b** (`/verify`/`/banks`'s own
+> dedicated investigation, not yet started), **or the still-separately-
+> open webhook-handler/verification-API gap** flagged two notes below —
+> three genuinely independent open threads.
+>
+> **Newest note (2026-09-02, previous) — Part b split into a/b,
+> Part b-a split further into i/ii; only b-a-i done (fact-finding
+> only, no verdict rendered yet).** Re-confirmed via fresh clones of
+> both Mavins-web and Velune: exactly one caller of `/api/pay` exists
+> anywhere across both repos — Mavins-web's `initialize-payment`
+> Supabase Edge Function, server-to-server, secret held in `Deno.env`,
+> never client-reachable. Structurally the same trust level `/payout`'s
+> own (already-confirmed) caller has. Velune doesn't call this backend
+> at all, for anything. Neither `/verify` nor `/banks` turned up any
+> caller in either repo during this same pass, though that's a side
+> observation from b-a-i's own greps, not yet Part b-b's own dedicated
+> check. **Deliberately no recommendation rendered here** — whether
+> these facts make extending `requireInternalApiKey` to `/pay` actually
+> appropriate is Part b-a-ii's job, not done this round. Full write-up
+> under Task 42's own "Part b-a-i" entry. **Next: Part b-a-ii** (the
+> verdict itself), or Part b-b (the same investigation for
+> `/verify`/`/banks`), or the still-separately-open webhook-handler/
+> verification-API gap the previous note below flagged — three
+> genuinely independent open threads, pick whichever the product owner
+> prioritizes.
+>
+> **Newest note (2026-09-02, previous) — the response-parsing "b"
+> flagged below is now built, correcting a wrong guess from the
+> session that flagged it.** Re-fetched Korapay's own payout docs
+> directly rather than trust the prior session's characterization —
+> the real shape is two levels, not a flat string: top-level `status`
+> genuinely IS a boolean (the existing check was already correct for
+> that), and a SEPARATE field, `data.status`, is the string
+> (`"processing"` in Kora's own documented example) this code never
+> looked at at all. Fixed: `"processing"` is now explicitly treated as
+> the normal, expected, non-error outcome (Kora's own docs are clear
+> payout confirmation is asynchronous); a new defensive check throws
+> on `data.status === 'failed'` (a real, if less common, synchronous
+> failure the old code would have silently swallowed as success); logs
+> now say explicitly what Kora's transaction status actually is,
+> instead of an unqualified "Payout success" for a merely-accepted
+> transaction. Verified via `node --check` + 6 functional test cases,
+> all passing. **Real, separate gaps surfaced (not fixed) by this
+> work, flagged rather than silently left implicit: no webhook handler
+> for payout completion anywhere in this repo, and no Payout
+> Verification API call either** — without either, this backend has no
+> way to ever learn a `"processing"` payout's true final outcome.
+> **Next: Part b** (is extending `requireInternalApiKey` to
+> `/pay`/`/verify`/`/banks` even appropriate — a design question, not
+> an implementation task) **or building the missing webhook handler /
+> verification call just flagged** — both genuinely open, pick
+> whichever the product owner prioritizes. Full write-up under Task
+> 42's own "The 'b' this split implies" section.
+>
+> **Newest note (2026-09-01, previous) — Task 42 Part A: CRITICAL
+> security fix, `POST /payout` had zero authentication, now fixed.**
+> Found by a Mavins-web session but flagged in the wrong repo's
+> handover (this one has the actual vulnerable code) — confirmed
+> directly against this repo's `routes.js` before building anything,
+> not taken on trust: any unauthenticated request from anywhere could
+> trigger a real Korapay payout to an arbitrary bank account. New
+> `requireInternalApiKey` middleware (`utils/helpers.js`), shared
+> secret via `X-Internal-Api-Key` header, `crypto.timingSafeEqual`
+> comparison, fails closed if the env var itself is unset. Applied to
+> `POST /payout` only — verified via `node --check` + 6 functional
+> test cases, all passing, including the critical
+> env-var-unset-fails-closed case. **`INTERNAL_API_KEY` still needs a
+> real value set in Render's dashboard** — nothing is actually
+> protected in production until that happens, this is a code fix
+> only. **Next: Task 42 Part B** — extend the same protection to
+> `/pay`/`/verify`/`/banks` (needs checking whether that's even
+> appropriate for those routes first) AND independently verify
+> `processPayout`'s amount-unit convention against Korapay's real
+> payout docs (never confirmed, unlike the collection side). Full
+> write-up in Task 42's own entry.
+>
+> **Newest note (2026-08-31) — PR #3 opened against upstream, closes
+> the gap PR #2's merge/close left open.** Confirmed via `git fetch
+> upstream` that PR #2 is merged and closed (`upstream/main` at
+> `63f72e2`, "Merge pull request #2 from Zapier-codes/main") — the
+> plain-`git push`-auto-joins-an-open-PR mechanic that worked during
+> PR #2's window no longer applies. Checked `origin/main` against
+> `upstream/main` via `git log upstream/main..origin/main` (not
+> assumed): exactly 3 commits ahead —
+> `f755a40` (feat: full Korapay payout flow + bank list, the real
+> substance, verified with `node --check` before recommending a PR for
+> it), plus 2 docs-only commits (`adf47d1`, `2d4a7d6`). This sandbox
+> has no GitHub authentication (`gh` unavailable, no token, no
+> credential helper — confirmed, not assumed) so the PR itself was
+> opened by the person running the command, via `gh pr create --repo
+> Phoenix-Boss/B-PAY-backend --base main --head Zapier-codes:main`.
+> **Result: https://github.com/Phoenix-Boss/B-PAY-backend/pull/3** —
+> confirmed via `gh pr create`'s own success output (an authenticated,
+> authoritative source; a follow-up unauthenticated `api.github.com`
+> double-check hit a rate limit and wasn't needed). **Same
+> queue-until-merged posture as PR #2**: a future session should check
+> this PR's live status (merged/open/closed) before assuming anything
+> about upstream sync, the same way this session checked PR #2's
+> status directly rather than trusting an old assumption.
+>
+> **Newest note (2026-08-30) — new mandatory rule for every session,
+> all three repos: focus on building code now, and split whatever task
+> you pick into parts, building only one part per session.** Full rule
+> in the new "Build-focus + mandatory task-splitting" section right
+> after "Unified hand-off command format" near the top of this file.
+> Not applied to anything in THIS repo this session — this session
+> only added the rule itself (synced from Mavins-web, where it was
+> first written and applied) and did not verify or touch this repo's
+> own task queue below; the rest of this box's content is unchanged
+> and not re-confirmed as of this note.
+>
 > **Next task in THIS repo: none currently unblocked in code —
 > unchanged.** Task 41 (central Korapay webhook gateway) is **built**
 > — `webhookGateway.js`, wired into `routes.js`'s Korapay handler and
@@ -304,6 +469,62 @@ segment — still exactly this shape, not a shorter/different one.
 
 ---
 
+## Build-focus + mandatory task-splitting — MANDATORY, every session, all three repos
+
+**Added to all three repos' handover files this session (2026-08-30),
+kept identical the same way the section above it is — if you edit
+this section, copy the same edit into the other two in the same
+session.**
+
+**Direct product-owner instruction, two parts:**
+
+1. **All sessions should focus on building the code now, fully** — the
+   discovery/diagnosis-heavy phase this project spent a lot of recent
+   sessions in (schema queries, cross-repo diagnoses, architecture
+   proposals) should give way to actually implementing what's already
+   been decided. A task that's still genuinely blocked on a real open
+   product question stays blocked — don't force an answer that isn't
+   there — but a task sitting on a *resolved* decision with nothing
+   left but to write the code is exactly what a session should pick
+   next, in preference to opening a new discovery thread.
+2. **Every session must split whatever task it picks into parts, and
+   build only one of those parts** — never the whole task in one go,
+   regardless of how small the task looks at a glance. This formalizes,
+   as a standing rule rather than an occasional judgment call, the
+   pattern this project has already used successfully several times
+   (this repo's own Task 33 Part 2's a/b/c/d split; Mavins-web's Task
+   46's a/b/c/d/e split, Task 48-b/48-c/48-d's own lettered sub-splits)
+   — each part stays independently reviewable, independently
+   revertible, and independently patchable, and the natural stopping
+   point after one part keeps a single session's diff small enough to
+   actually verify properly (`tsc`/`node --check`, targeted checks, a
+   throwaway comparison script) rather than ballooning into something
+   no one part of which got real scrutiny.
+   **Amended (2026-09-01, later still), per explicit product-owner
+   instruction: cap the split at 5 parts, lettered a through e.** A
+   task doesn't need all 5 — 2 parts (a/b) is completely fine when
+   that's the natural shape, same as Mavins-web's Task 59 Part 2b-b's
+   own A/B split — but never split into more than 5. If a task's
+   natural granularity seems to want a 6th part, that's a signal the
+   task itself is too big for one split and should be broken into two
+   separate top-level tasks (each with its own up-to-5-part split)
+   rather than stretched to 6+ lettered sub-parts under one task.
+
+**How to split, in practice:** before writing any code, write out the
+task's natural parts (even if the task text doesn't already list them —
+most won't yet, since this is a new standing rule) as their own labeled
+sub-entries in the handover file, the same way this repo's own Task 33
+Part 2 or Mavins-web's Task 46 entries list their own lettered parts.
+Pick the first genuinely unblocked part, build only that one, and leave
+the rest explicitly marked not-started for the next session — don't
+silently keep going into part two because it "was right there." If a
+task turns out to have exactly one indivisible unit of work (rare, but
+possible for something truly small), that's fine — say so explicitly
+in the write-up ("not split further, this is a single atomic change")
+rather than leaving it looking like a part was skipped.
+
+---
+
 ## How every session works
 
 1. **Pull latest first.** `git status --short` and `git log --oneline -5`
@@ -465,18 +686,23 @@ commits, unmerged" is the fully expected steady state — not something
 to chase, escalate, or try to fix.
 
 **Outstanding PRs status (updated by whichever session last checked —
-see step 2 above):** As of this session (the Task 25-authoring session,
-which only added a new task and did not touch code), `origin/main` is
-still ahead of `upstream/main`, latest commit `873355f` (the Task 16
-companion / DCC currency-forwarding commit) — **confirmed still
-unmerged**, `upstream/main`'s latest is still `900db65` (the earlier PR
-#1 merge, covering commits only through `0616b8e`). Per the policy
-above, every new pushed commit keeps joining this same PR #2
-automatically; update this paragraph (don't append a new one, and
-don't hardcode a commit count that will go stale again — describe it
-relative to the hashes, as done here) each time a session's step-2
-check finds something has changed — new commits added, or (eventually)
-merged.
+see step 2 above):** **PR #2 has been merged by Phoenix-Boss**,
+confirmed this session by adding the real `upstream` remote
+(`https://github.com/Phoenix-Boss/B-PAY-backend.git`) and fetching it
+directly (not assumed, not inferred from the fork alone) —
+`upstream/main`'s latest commit is now `63f72e2`, "Merge pull request
+#2 from Zapier-codes/main", which brings in everything through
+`01df9c7` (this fork's own latest at the time of checking). This is
+the real state change the note above this one anticipated — **the
+queue-until-done plan has now reached its natural endpoint for
+everything committed so far.** Nothing in this fork's `main` is
+ahead of what's now live upstream. Per that same note: whenever the
+next task's work is ready to ship, a **fresh PR** will need to be
+opened (PR #2 is closed/merged, it won't silently keep absorbing new
+commits the way it did while open) — don't assume `git push
+origin main` alone is still sufficient the way it was during PR #2's
+window; check whether a new PR needs creating before assuming a plain
+push is the whole story next time.
 
 ---
 
@@ -2277,3 +2503,441 @@ nothing further to decide there.)
   new patches in this file too, so numbering doesn't have to track
   three repos' independent, interleaved sessions.
 
+
+---
+
+## Task 42 — CRITICAL: POST /payout had zero authentication — Part A fixed; Part B split, payload-shape bug found AND fixed, response-parsing corrected; `/pay` auth-extension implemented on this side (Part c-a), cross-repo c-b urgent-not-done; `/verify`/`/banks` (Part b-b) still open [x] (Part A + Part B's amount-verify + payload-shape + response-parsing + b-a's facts-and-verdict + c-a)
+
+**Found by a Mavins-web session, flagged there instead of here (the
+wrong repo — the vulnerable code lives in this one), confirmed
+directly against this repo's own `routes.js` before writing anything
+down, not taken on trust.** `POST /payout` — the route that actually
+moves real money out via Korapay's disburse API — had **no
+authentication of any kind**: no API key, no shared secret, no IP
+allowlist, nothing. Any request from anywhere on the internet, with no
+credentials at all, could trigger a real payout to an arbitrary bank
+account by supplying `amount`/`bank_code`/`account_number` directly.
+This is the single most severe finding in this project's history —
+prioritized over the literal next item in the feature queue given the
+live financial risk, same judgment call this project's own "urgent
+security finding" precedent elsewhere would support.
+
+**Split into Part A/B, this session, per the standing mandatory
+task-splitting rule — Part A only, built and verified:**
+
+### Part A — authentication on `/payout` specifically [x]
+New `requireInternalApiKey` middleware (`utils/helpers.js`) — a shared
+secret (`INTERNAL_API_KEY`, new env var, `render.yaml` updated,
+**not yet set to a real value in Render's dashboard** — manual
+product-owner step, same class of action as every other secret in
+this file), sent by trusted callers as `X-Internal-Api-Key`, compared
+with `crypto.timingSafeEqual` (same rigor already established in
+`webhookGateway.js`'s own signature checks — deliberately not a plain
+`===`, which would leak timing information). **Fails closed if the
+env var itself is unset** — same posture already used everywhere else
+in this codebase a secret might be missing; an unconfigured key must
+never be silently treated as "no auth required." Applied to `POST
+/payout` only, via `router.post('/payout', requireInternalApiKey,
+async (req, res) => { ... })` — a single middleware argument, minimal
+surface change.
+
+**Verified, not assumed:** `node --check` on both touched files; a
+standalone functional test against 6 cases, all passing — correct key
+lets the request through, missing key rejected (401), wrong key
+rejected (401), a key of different byte length rejected without
+crashing (401 — confirms the length-check-before-`timingSafeEqual`
+guard works, since that function throws on mismatched lengths rather
+than returning false), empty-string key rejected (401), and critically
+**the env var being unset fails closed with a 500, never lets a
+request through** — the one case that would have been catastrophic to
+get wrong.
+
+### Part B — split into a/b/c this session, per the standing mandatory task-splitting rule [ ] (a only)
+
+Originally two flagged items; split into three parts along their
+actual dependency lines rather than the original 1/2 grouping — item 2
+(amount-unit verification) is fully independent and became Part a;
+item 1 (extend auth to other routes) splits into an investigation
+(Part b: is it even appropriate) and its own implementation (Part c),
+since "check first, then maybe build" was always two different jobs
+bundled into one bullet.
+
+### Part a — independently verify `processPayout`'s amount-unit convention against Korapay's real payout docs [x] (documentation only, no code changed)
+
+**Done this session (2026-09-01) — the narrow question is answered,
+but a much bigger, previously-undocumented problem surfaced while
+answering it.**
+
+**The amount-unit question itself: confirmed correct, no change
+needed.** Fetched `developers.korapay.com/docs/payout-via-api`
+directly (not relied on from memory or the collection-side citation) —
+its field reference describes `destination.amount` as the transaction
+amount "in two decimal places," i.e. base currency units (e.g.
+`1500.00` for fifteen hundred naira), the same convention already
+confirmed for the collection side. This matches the existing
+`getAmountFormat('korapay', ...)` config exactly
+(`{ unit: 'base', multiplier: 1 }`) — Part A's assumption that the
+payout side shares the collection side's convention turns out to be
+right, now independently confirmed rather than merely assumed.
+
+**What actually needs fixing, found in the same pass — flagged, NOT
+built, per explicit instruction to keep this session documentation
+only:** `processPayout()`'s entire request payload shape doesn't match
+the real, current Payout API at all. The official schema requires
+every payout-specific field nested under a single `destination`
+object, with `destination.type` (`bank_account` or `mobile_money`)
+**required** — this codebase's payload is flat at the top level and
+never sets a `type` field anywhere. Field-by-field, as currently sent
+vs. what Korapay's docs actually require:
+
+| Sent today (`providers/korapay.js`, top-level) | Required today (nested under `destination`) |
+|---|---|
+| *(nothing — `destination.type` never set)* | `destination.type` — **required**, `bank_account` or `mobile_money` |
+| `amount` | `destination.amount` |
+| `currency` | `destination.currency` |
+| `bank_code` | `destination.bank_account.bank` |
+| `account_number` | `destination.bank_account.account` |
+| `narration` | `destination.narration` |
+| `customer` (optional in this code) | `destination.customer.email` — **required** |
+| `payment_method` | *(not a real field on this endpoint at all)* |
+
+**Practical effect: every real payout call this code makes almost
+certainly gets rejected outright by Korapay** — not a wrong-amount
+bug, a wrong-shape bug, independent of and more severe than the
+amount-unit question this part was actually scoped to check. This
+should very likely be fast-tracked ahead of Part b/c given it affects
+whether payouts function at all, not just their security — but that's
+a product-owner call, not this session's to make unilaterally
+(explicit instruction this session: documentation only, don't fix it
+even though the severity is high).
+
+**Smaller, secondary finding, also flagged rather than corrected
+here:** the currently-confirmed Korapay currency list
+(`CONFIRMED_PROVIDER_CURRENCIES.korapay` in `utils/helpers.js`)
+includes `TZS`, but the *current* live payout-via-api docs page's
+currency field lists only `NGN, KES, GHS, XOF, XAF, EGP, ZAR, USD` for
+payouts — no TZS. Either the docs changed since that list was first
+confirmed, or TZS payout support may not actually exist and the
+original citation was mistaken. Not corrected here since
+`CONFIRMED_PROVIDER_CURRENCIES` is a shared list other code paths
+depend on (including the collection side, where TZS may well still be
+correct) — a future session should re-verify TZS specifically for
+payouts before either removing it or confirming it stays.
+
+**One more real detail worth a future session knowing, not urgent
+enough to block anything:** Korapay's docs state that XAF and XOF
+payouts are only accepted in multiples of 5 or 10 — an amount like
+XAF 101 must be rounded to 100 or 110 before the request, or it's
+rejected. Nothing in this codebase currently handles that rounding
+rule for any currency.
+
+### Part a's own fix — the payload-shape bug it found, now fixed (2026-09-01) [x]
+
+**This session, split from the original a/b/c grouping per direct
+instruction ("split into a and b, do only a") — treated as its own
+a/b, separate from the pre-existing Part b/c above (those are about
+the unrelated auth-extension question).** Independently re-verified
+the mismatch before fixing anything — fetched
+`developers.korapay.com/docs/payout-via-api` again AND a community
+Elixir client library's own published type spec
+(`@type destination() :: %{type: String.t(), amount: float(),
+currency: String.t(), narration: String.t(), bank_account:
+short_bank_account(), customer: customer()}`) — **two independent
+sources agreeing**, not relying on the prior session's own citation
+alone.
+
+**Fixed in `providers/korapay.js#processPayout()`:** the entire
+outgoing payload now nests under `destination` exactly as both sources
+describe — `type` (explicitly sent, `'mobile_money'` when
+`data.payment_method === 'mobile_money'`, `'bank_account'` otherwise;
+Korapay's own docs say this defaults to `bank_account` if omitted, but
+there's no reason to lean on an undocumented-in-the-official-reference
+default when the value is always known at call time), `amount`,
+`currency`, `narration`, `bank_account: { bank, account }` (renamed
+from the old flat `bank_code`/`account_number`), and `customer: {
+email, name?, phone? }`. **`customer.email` is now required, not
+optional** — the old code let it be silently omitted; the real schema
+requires it, so this now throws a clear `providerError` before any
+request is even built, rather than letting Korapay reject an
+incomplete request with a less specific error.
+
+**Verified:** `node --check` on the modified file; a standalone
+functional test, 4 cases, all passing — full nested shape correct
+with zero stray top-level fields; the `mobile_money` type override
+works; no leaked `undefined` `name`/`phone` keys in `customer` when
+those are omitted (JS's `...(cond && {...})` spread pattern, confirmed
+it doesn't add an `undefined`-valued key the way a plain conditional
+assignment might); missing `customer.email` throws before payload
+construction.
+
+**Deliberately NOT touched this session — flagged, not fixed:** the
+response-parsing side, believed at the time to be a flat
+`status`-as-string object. **That guess was corrected the next
+session — see "The 'b' this split implies — now built" below, which
+supersedes this paragraph's own framing.** Also still open, unchanged
+from Part a's original notes above: the TZS currency-list discrepancy,
+and the XAF/XOF rounding-multiple rule.
+
+### The "b" this split implies — now built (2026-09-02)
+
+**Re-fetched `developers.korapay.com/docs/payout-via-api` directly
+before writing anything — the prior session's guess (a flat
+`status`-as-string object) was wrong.** The real shape, straight from
+Kora's own documented example, is **two levels**: `responseData.status`
+(top-level) genuinely IS a boolean — `true`/`false`, "did Kora accept
+this API call" — and the existing `!responseData.status` check was
+*already correct* for that. What was actually missing: a completely
+separate field, `responseData.data.status`, a STRING describing the
+*transaction's own* lifecycle state (`"processing"` in Kora's own
+example; presumably `"success"`/`"failed"` too, though only
+`"processing"` appears in their documented sample — a payout is rarely
+resolved synchronously). This code never looked at that field at all.
+
+**Fixed in `providers/korapay.js#processPayout()`:**
+- `"processing"` is treated as the **normal, expected** outcome, not
+  an error — Kora's own docs are explicit that payout confirmation is
+  asynchronous ("Receive confirmation via webhook when the payout is
+  completed" / "Query the transaction to get the status"), and
+  separately warn against treating an ambiguous outcome as failure
+  without verifying first (their own "Handling Unexpected Request
+  Errors" section: an unexpected error "may have been accepted and
+  processed by Kora" regardless). `processPayout()`'s own job now ends
+  at "Kora accepted the request," documented explicitly in a code
+  comment — it does NOT confirm money actually moved, and callers must
+  not treat its return as "payout completed." **Neither a webhook
+  handler nor a Payout Verification API call exists anywhere in this
+  codebase yet** — a real, separate gap this fix surfaces but doesn't
+  close; flagged here rather than silently assumed handled elsewhere.
+- **New, defensive check added:** `data.status === 'failed'` (not
+  shown in Kora's own documented example, but plausible for an
+  immediate synchronous rejection — e.g. an obviously invalid
+  destination) now throws a real error. Outer `status: true` only ever
+  confirmed the API call was well-formed and accepted, never that the
+  transfer would succeed — treating this combination as silent success
+  would have been a real-money bug, not a cosmetic one.
+- A log line now explicitly states the transaction's `data.status`
+  value and repeats, inline, that this is an acknowledgement, not
+  final confirmation — so anyone reading production logs isn't misled
+  by a log line that used to just say "Payout success" for a merely
+  `"processing"` transaction.
+
+**Verified:** `node --check` on the modified file. A standalone
+functional test, 6 cases (matching Kora's own documented "processing"
+example; a hypothetical synchronous "success"; a synchronous
+`data.status: 'failed'` with outer `status: true` — the new defensive
+check; an outer `status: false` API-level rejection; an HTTP-level
+502-style failure; a response with no `data.status` field at all,
+confirming that doesn't spuriously throw) — **all 6 correct**.
+
+**Deliberately NOT built — flagged as real, separate gaps, not
+silently assumed out of scope:**
+- No webhook handler for payout completion/failure events anywhere in
+  this repo. Without one, this backend (and by extension Mavins-web)
+  has no way to ever learn a `"processing"` payout's true final
+  outcome short of manually polling the Payout Verification API.
+- ~~No Payout Verification API call implemented either~~ — **built
+  this session, see "the missing verification call — part i" below.**
+- Still open, unchanged: the TZS currency-list discrepancy, and the
+  XAF/XOF rounding-multiple rule (Part a's own notes above).
+
+### The missing verification call — part i (2026-09-02) [x] (i only, ii not built)
+
+**Split into i/ii per direct instruction ("split into a and b... add
+i and ii, do only i") — this is a separate split from Task 42's own
+Part a/b/c lettering above, since this gap was never itself lettered,
+only flagged as prose.** New
+`providers/korapay.js#verifyPayout(reference)`, mirroring the
+existing collection-side `verifyTransaction()`'s structure rather than
+inventing a new shape.
+
+**Endpoint confidence stated explicitly, weaker than the request/
+response shape fixes above — that difference matters enough to spell
+out, not gloss over:** Korapay's own payout-via-api docs page never
+states the single-payout verify path as a literal string — it only
+links to a separate anchor-based API reference this session couldn't
+resolve to a concrete URL. Instead, this is a **strong pattern-match
+from a real, directly-confirmed sibling**: Korapay's own Bulk Payouts
+docs explicitly show `POST .../transactions/disburse/bulk` creates a
+batch and `GET .../transactions/bulk/:batch_reference` verifies it.
+Applying that same create/verify pairing to the single (non-bulk)
+case — the same `transactions` resource family `processPayout()`
+already POSTs to, just dropping the `bulk/` segment — gives `GET
+.../transactions/{reference}`, which is what got built. **Recommend
+one real sandbox call to confirm this before trusting it in
+production** — flagged explicitly so this verification step doesn't
+get silently skipped later by a future session assuming it's already
+settled to the same standard as the rest of this fix.
+
+**Response handling deliberately differs from `processPayout()`'s own
+— on purpose, not an inconsistency:** `processPayout()` throws on
+`data.status === 'failed'` (a payout failing is an error *for the
+function whose job is to initiate a payout*). `verifyPayout()` does
+**not** throw on that same value — a failed payout is a normal,
+correctly-answered result of *asking what happened*, not an error in
+asking. Only a genuine API-level rejection (bad reference, auth
+failure, non-2xx) throws here.
+
+**Verified:** `node --check`; a standalone functional test, 5 cases,
+all passing — success/processing/failed transaction states all
+resolve without throwing (confirming the deliberate divergence from
+`processPayout()` above), while an API-level rejection and an
+HTTP-level failure both throw correctly.
+
+**Part ii, NOT built this session:** wiring `verifyPayout()` into an
+actual route (`GET /payout/:reference/verify` or similar — naming not
+decided) so callers outside this repo can actually reach it. The
+webhook-handler half of the original gap also remains fully open,
+independent of this split.
+
+### Part b — is extending `requireInternalApiKey` to `/pay`/`/verify`/`/banks` even appropriate? [ ] (split into a/b — a fully resolved via i/ii, b not started)
+
+Original concern stands as the framing question: `/pay` and `/verify`
+may need to stay reachable from contexts `/payout` never should be.
+Split into two independent halves along the routes' actual usage
+lines, since `/pay` and `/verify`/`/banks` turn out to have completely
+different evidence available (see Part b-a below) — bundling them
+risked a single verdict papering over that difference.
+
+### Part b-a — investigate `/pay` specifically [x] (split into i/ii — both done: i = facts, ii = verdict)
+
+Split further per the same rule, into a pure fact-finding half (i)
+and the actual verdict that depends on it (ii) — kept deliberately
+separate so the fact-finding chunk can land as its own small,
+reviewable, documentation-only piece rather than bundling
+"here's what I found" and "here's what I think we should do about it"
+into one commit.
+
+### Part b-a-i — confirm exactly who calls `/pay`, and characterize that caller's trust level [x] (documentation only, no code changed, no verdict rendered)
+
+**Done this session (2026-09-01) — facts only, deliberately no
+recommendation yet (that's Part b-a-ii).**
+
+Re-confirmed via fresh clones of both Mavins-web and Velune (not
+reused from any earlier session's possibly-stale finding):
+
+- **Exactly one caller of `/api/pay` exists anywhere across both
+  repos**: Mavins-web's `supabase/functions/initialize-payment/index.ts`,
+  a Supabase Edge Function. It reads this backend's base URL from
+  `Deno.env.get('BPAY_BACKEND_URL')` (a Supabase secret, not a
+  client-exposed `NEXT_PUBLIC_*` var) and calls
+  `fetch(\`${bpayBackendUrl}/api/pay\`, ...)` server-side.
+- Grepped all of Mavins-web's `src/` and `supabase/` for any other
+  reference to `b-pay-backend`, `bpayBackendUrl`, or `BPAY_BACKEND_URL`:
+  zero other hits.
+- Grepped all of Velune's Kotlin source for `b-pay`/`bpay`/`BPAY`/
+  `korapay`: zero hits anywhere — Velune doesn't call this backend at
+  all, for `/pay` or anything else.
+- **Trust characterization of the one confirmed caller**: server-to-
+  server, Supabase Edge Function environment, secret held in
+  `Deno.env` rather than any client-reachable variable. This is
+  structurally the same kind of trusted, non-browser context
+  `/payout`'s own caller (also confirmed server-side, per Task 42 Part
+  A's own investigation) already is.
+
+**Deliberately not concluded here — that's Part b-a-ii's job:**
+whether this fact pattern makes adding `requireInternalApiKey` to
+`/pay` safe/appropriate, and if so, exactly what changes
+`initialize-payment/index.ts` would need (almost certainly: read a new
+secret, attach an `X-Internal-Api-Key` header) — a cross-repo
+follow-up if so, not something this backend's own code change alone
+would complete.
+
+### Part b-a-ii — render the actual recommendation for `/pay`, based on Part b-a-i's facts [x] (documentation only, no code changed)
+
+**Done this session (2026-09-02) — recommendation: yes, extend
+`requireInternalApiKey` to `/pay`.**
+
+Part b-a-i's confirmed facts leave no real ambiguity here: `/pay` has
+exactly one caller anywhere across the two apps that could plausibly
+use this backend (Mavins-web, Velune), and that caller is a Supabase
+Edge Function — server-to-server, holding whatever secret it needs in
+`Deno.env`, never exposed to a browser or any client-reachable
+context. That is structurally identical to `/payout`'s own caller,
+which already justified adding this exact same middleware in Task 42
+Part A. There is no legitimate current use case for `/pay` being
+reachable by an unauthenticated request — the one real consumer is
+already positioned to hold and send an internal API key, the same way
+it already holds `BPAY_BACKEND_URL` itself.
+
+**Scope note — this verdict covers `/pay` only, deliberately.**
+`/verify` and `/banks` are Part b-b's own question, not decided here
+even though b-a-i's grep pass happened to touch on them in passing —
+they could have a legitimate reason to stay open (e.g. if either is
+ever meant to be reachable from a context `/pay`/`/payout` aren't) that
+this investigation never actually checked for.
+
+**Not done here, per Part b/c's own existing split — implementation is
+Part c's job:** actually adding the `requireInternalApiKey` middleware
+to the `/pay` route in `routes.js`, generating/confirming the shared
+secret value, and updating Mavins-web's `initialize-payment/index.ts`
+to read that secret and attach `X-Internal-Api-Key` to its request —
+a cross-repo change, not something this commit does.
+
+Part b (both halves) is now fully resolved as an investigation: `/pay`
+→ extend the middleware (this entry); `/verify`/`/banks` → still open,
+Part b-b not started. Part c can proceed for `/pay` immediately; it
+should wait on Part b-b before touching the other two routes.
+
+### Part b-b — investigate `/verify` and `/banks` specifically [ ]
+
+Not started. **One fact already surfaced as a side effect of Part
+b-a-i's own greps, worth recording now rather than re-discovering
+later**: neither `/api/verify` nor `/api/banks` turned up any caller
+at all in either Mavins-web or Velune's source during that same pass —
+but Part b-b should still do its own dedicated, deliberate check
+(rather than treating this as conclusive) before relying on it, since
+b-a-i's greps were scoped to confirm `/pay`'s caller specifically, not
+built to be an exhaustive audit of these two routes.
+
+### Part c — implement whatever Part b concludes [ ] (split into a/b, per the standing mandatory splitting rule — a done, b not started)
+
+### Part c-a — this backend's own side: protect `/pay` with `requireInternalApiKey` [x]
+
+**Done this session (2026-09-02), commit `d8615c0`.** `router.post('/pay', ...)`
+now has the same `requireInternalApiKey` middleware `/payout` already
+had, per Part b-a-ii's verdict. Also fixed, in the same commit since
+it's directly touched: the middleware's own rejection log hardcoded
+"payout-adjacent" in its wording — now generic, since it guards two
+routes now, not one. Verified via `node --check` on both changed files
+plus a throwaway functional smoke test (real `requireInternalApiKey`
+imported into a minimal Express app, `/api/pay` hit three ways): no
+key → 401; wrong key → 401; correct key → reaches the handler. All
+three passed.
+
+### Part c-b — cross-repo: Mavins-web's `initialize-payment` Edge Function must send the new header [x]
+
+**Done — in Mavins-web, not this repo. This entry was stale; corrected
+this session after finding the fix already shipped there while
+pulling latest for an unrelated task.** Mavins-web's own
+`handover.md` → **Task 63** (commit `4a95a52`,
+"Task 63 — send X-Internal-Api-Key from initialize-payment, urgent
+B-Pay-backend Task 42 Part c-b") built this exactly as specified
+below, verified by reading both the code and that repo's own write-up
+directly rather than trusting the commit message alone:
+`supabase/functions/initialize-payment/index.ts` now reads a new
+secret, `BPAY_INTERNAL_API_KEY`, and sends it as `X-Internal-Api-Key`
+on its existing `fetch()` call to this backend's `/api/pay` — header
+name confirmed to match `requireInternalApiKey`'s own
+`req.headers['x-internal-api-key']` check exactly (Express lowercases
+header names, so the casing difference is not a mismatch). Fails
+closed with a `500` + specific error if the secret isn't set, same
+posture as this backend's own middleware.
+
+**What's NOT done, and can't be from either sandbox — a live
+deployment/secrets-configuration step, not a code gap:**
+```
+supabase secrets set BPAY_INTERNAL_API_KEY=<same value as this backend's own INTERNAL_API_KEY>
+supabase functions deploy initialize-payment
+```
+This value must be **identical** to this backend's own
+`INTERNAL_API_KEY` Render env var — one shared secret, not two
+independent ones. If `INTERNAL_API_KEY` doesn't have a value set on
+Render yet, generate one and set it on **both** sides in the same
+sitting. Deploy Mavins-web's Edge Function alongside (or before) this
+backend's own Part c-a rollout — never after. **This is the one
+remaining real risk**: the code on both sides is correct and
+consistent, but until both secrets are actually set to the same value
+and both sides are actually deployed, the ordering warning above still
+applies in spirit — an actual live gap, not a documentation one.
+
+---
