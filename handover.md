@@ -3,6 +3,21 @@
 > **▶ START HERE — read this box only, then go straight to work. Skip
 > everything else below unless you get stuck.**
 >
+> **Newest note (2026-09-03, latest of all) — Part c-b's remaining
+> operational risk resolved: `INTERNAL_API_KEY` confirmed set on
+> Render, matching Mavins-web's `BPAY_INTERNAL_API_KEY`.** Project
+> owner confirmed directly (matching confirmation added to Mavins-web's
+> own `handover.md` this same session). **Still not fully closed —
+> two things this alone doesn't answer:** (1) whether this backend's
+> Render service auto-deploys on push, which matters for whether a real
+> gap existed between Part c-a's `requireInternalApiKey` protection
+> going live and Mavins-web's own header-sending fix deploying (both
+> secrets being correctly set *today* doesn't retroactively confirm no
+> checkouts 401'd in between), and (2) whether a real checkout has
+> actually been observed succeeding since both sides deployed, as
+> opposed to configuration merely being correct on paper. Don't treat
+> Task 42's Part c as fully closed until those two are also confirmed.
+>
 > **Newest note (2026-09-02, latest of all) — `verifyPayout()` built,
 > closing half of the "no way to learn a payout's true final outcome"
 > gap.** New `providers/korapay.js#verifyPayout(reference)`, mirroring
