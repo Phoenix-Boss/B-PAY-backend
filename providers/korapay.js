@@ -268,6 +268,69 @@ export class Korapay {
     return result;
   }
 
+  // Task 42 "the missing verification call" — split into i/ii per
+  // direct instruction. Part i = this method only, built here. Part
+  // ii = wiring it into an actual route, NOT built this session.
+  // Directly answers processPayout()'s own flagged gap: "no Payout
+  // Verification API call... no way to ever learn a 'processing'
+  // payout's true final outcome."
+  //
+  // Endpoint confidence, stated explicitly rather than left implicit:
+  // this path is NOT a directly-quoted string from Korapay's own
+  // docs the way processPayout()'s request/response shapes are (that
+  // page never states the single-payout verify path outright, only
+  // links to a separate anchor-based API reference this session
+  // couldn't resolve to a literal URL). It's a strong pattern-match
+  // instead, evidenced by a real, directly-confirmed sibling: Kora's
+  // own Bulk Payouts docs show `POST .../transactions/disburse/bulk`
+  // creates a batch and `GET .../transactions/bulk/:batch_reference`
+  // verifies it — the same "transactions" resource family
+  // processPayout() already POSTs to. Applying that same create/
+  // verify pairing to the single (non-bulk) case, dropping the
+  // "bulk/" segment: `GET .../transactions/{reference}`. Recommend
+  // one real sandbox call to confirm this before trusting it in
+  // production — flagged here so that verification step isn't
+  // silently skipped later.
+  async verifyPayout(reference) {
+    log(`Korapay Payout Verification Request for: ${reference}`);
+
+    const result = await handleApiCall(async () => {
+      const response = await fetch(
+        `${this.baseUrl}/api/v1/transactions/${encodeURIComponent(reference)}`,
+        {
+          method: 'GET',
+          headers: {
+            'Authorization': `Bearer ${this.secretKey}`,
+            'Content-Type': 'application/json',
+          },
+        }
+      );
+
+      const responseData = await response.json();
+
+      // Same two-level shape as processPayout()'s own response,
+      // confirmed this session — outer `status` boolean = "did Kora
+      // accept/find this request", inner `data.status` string = the
+      // transaction's real lifecycle state. Unlike processPayout(),
+      // a verify call's whole PURPOSE is to learn that lifecycle
+      // state, including 'failed' — so this function does NOT throw
+      // on `data.status === 'failed'` the way processPayout() does;
+      // a failed payout is a normal, expected, successfully-verified
+      // answer to "what happened to this payout", not an error
+      // calling this function. Only a genuine API-level rejection
+      // (bad reference, auth failure, etc. — outer `status: false`
+      // or a non-2xx) throws here.
+      if (!response.ok || !responseData.status) {
+        throw providerError(responseData.message || 'Korapay payout verification failed');
+      }
+
+      return responseData;
+    }, 'korapay');
+
+    log(`Korapay Payout Verification Response — transaction status: '${result.data?.status}'`);
+    return result;
+  }
+
   // ==================================================
   // 🏦 BANK LIST (helper for payout recipient setup)
   // ==================================================

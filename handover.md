@@ -3,6 +3,31 @@
 > **▶ START HERE — read this box only, then go straight to work. Skip
 > everything else below unless you get stuck.**
 >
+> **Newest note (2026-09-02, latest of all) — `verifyPayout()` built,
+> closing half of the "no way to learn a payout's true final outcome"
+> gap.** New `providers/korapay.js#verifyPayout(reference)`, mirroring
+> the existing collection-side `verifyTransaction()`. **Endpoint path
+> confidence stated explicitly, weaker than the request/response shape
+> fixes**: not a directly-quoted string from Korapay's docs, but a
+> strong pattern-match from a real confirmed sibling — Bulk Payouts'
+> own `POST .../transactions/disburse/bulk` create +
+> `GET .../transactions/bulk/:batch_reference` verify pairing, applied
+> to the single case by dropping `bulk/`:
+> `GET .../transactions/{reference}`. **Recommend one real sandbox
+> call to confirm before trusting this in production.** Response
+> handling deliberately differs from `processPayout()`'s own on
+> purpose: `verifyPayout()` does NOT throw on `data.status === 'failed'`
+> — a failed payout is a correct, expected *answer* to "what happened,"
+> not an error in asking. Verified via `node --check` + 5 functional
+> test cases, all passing. **Not built: wiring this into an actual
+> route (Part ii)**, so no caller outside this repo can reach it yet.
+> The webhook-handler half of the original gap also remains fully
+> open. **Next: Part ii (wire the route), or the webhook handler, or
+> Part b-b (`/verify`/`/banks`'s own auth-extension question)** —
+> three genuinely open threads, pick whichever the product owner
+> prioritizes. Full write-up under Task 42's own "The missing
+> verification call — part i" section.
+>
 > **Newest note (2026-09-02, latest of all) — Part c-b confirmed done
 > in Mavins-web (Task 63, commit `4a95a52`), correcting a stale note
 > here that said otherwise. This backend's own `/pay` route change
@@ -2710,11 +2735,59 @@ silently assumed out of scope:**
   this repo. Without one, this backend (and by extension Mavins-web)
   has no way to ever learn a `"processing"` payout's true final
   outcome short of manually polling the Payout Verification API.
-- No Payout Verification API call implemented either (Kora's own
-  Step 5 in their documented workflow) — the manual-poll fallback for
-  the above doesn't exist yet either.
+- ~~No Payout Verification API call implemented either~~ — **built
+  this session, see "the missing verification call — part i" below.**
 - Still open, unchanged: the TZS currency-list discrepancy, and the
   XAF/XOF rounding-multiple rule (Part a's own notes above).
+
+### The missing verification call — part i (2026-09-02) [x] (i only, ii not built)
+
+**Split into i/ii per direct instruction ("split into a and b... add
+i and ii, do only i") — this is a separate split from Task 42's own
+Part a/b/c lettering above, since this gap was never itself lettered,
+only flagged as prose.** New
+`providers/korapay.js#verifyPayout(reference)`, mirroring the
+existing collection-side `verifyTransaction()`'s structure rather than
+inventing a new shape.
+
+**Endpoint confidence stated explicitly, weaker than the request/
+response shape fixes above — that difference matters enough to spell
+out, not gloss over:** Korapay's own payout-via-api docs page never
+states the single-payout verify path as a literal string — it only
+links to a separate anchor-based API reference this session couldn't
+resolve to a concrete URL. Instead, this is a **strong pattern-match
+from a real, directly-confirmed sibling**: Korapay's own Bulk Payouts
+docs explicitly show `POST .../transactions/disburse/bulk` creates a
+batch and `GET .../transactions/bulk/:batch_reference` verifies it.
+Applying that same create/verify pairing to the single (non-bulk)
+case — the same `transactions` resource family `processPayout()`
+already POSTs to, just dropping the `bulk/` segment — gives `GET
+.../transactions/{reference}`, which is what got built. **Recommend
+one real sandbox call to confirm this before trusting it in
+production** — flagged explicitly so this verification step doesn't
+get silently skipped later by a future session assuming it's already
+settled to the same standard as the rest of this fix.
+
+**Response handling deliberately differs from `processPayout()`'s own
+— on purpose, not an inconsistency:** `processPayout()` throws on
+`data.status === 'failed'` (a payout failing is an error *for the
+function whose job is to initiate a payout*). `verifyPayout()` does
+**not** throw on that same value — a failed payout is a normal,
+correctly-answered result of *asking what happened*, not an error in
+asking. Only a genuine API-level rejection (bad reference, auth
+failure, non-2xx) throws here.
+
+**Verified:** `node --check`; a standalone functional test, 5 cases,
+all passing — success/processing/failed transaction states all
+resolve without throwing (confirming the deliberate divergence from
+`processPayout()` above), while an API-level rejection and an
+HTTP-level failure both throw correctly.
+
+**Part ii, NOT built this session:** wiring `verifyPayout()` into an
+actual route (`GET /payout/:reference/verify` or similar — naming not
+decided) so callers outside this repo can actually reach it. The
+webhook-handler half of the original gap also remains fully open,
+independent of this split.
 
 ### Part b — is extending `requireInternalApiKey` to `/pay`/`/verify`/`/banks` even appropriate? [ ] (split into a/b — a fully resolved via i/ii, b not started)
 
