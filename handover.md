@@ -2956,3 +2956,65 @@ and both sides are actually deployed, the ordering warning above still
 applies in spirit — an actual live gap, not a documentation one.
 
 ---
+
+## Task 43 — Fork Edges-Enterprise/bpay + PR workflow; "Bpay app" architecture direction [ ]
+
+**Documentation only, per explicit instruction — no code, no repo
+clone, no exploration this session.** The product owner gave real
+architectural direction for a separate, not-yet-touched app/repo this
+session; recorded here in full so the next session that actually
+clones and works in it doesn't have to ask again.
+
+**This is a different, third repo — not this one.** "Bpay app" (the
+product owner's own name for it) is a wallet-based banking
+application — the actual end-user-facing product, aiming to become a
+fully functional wallet/banking app in the same category as Wise or
+Chipper Cash. **Currently ~50% done, per the product owner directly.**
+This is distinct from **this** repo (`B-Pay-backend`), which is the
+Node.js payment/provider-integration service the Bpay app is meant to
+consume, not the app itself.
+
+**Next session's first job — provide the fork + PR command(s):**
+fork `Edges-Enterprise/bpay` (the real upstream, owned by a different
+org) into `Zapier-codes/bpay`, so that changes can be pushed to
+`Zapier-codes/bpay` and submitted as pull requests the
+`Edges-Enterprise/bpay` maintainers can merge upstream. **This
+mirrors this same repo's own already-established fork/upstream
+pattern** (see this file's own notes on the `Phoenix-Boss/B-PAY-backend`
+upstream remote and PR #2) — same shape of relationship, different
+repo and different upstream org. Provide the actual `gh repo fork` (or
+equivalent `git remote add upstream` + manual fork) commands directly
+to the product owner — this session was explicitly told not to run
+them itself.
+
+**Product owner's stated architectural aim for the Bpay app, once
+that fork/PR workflow exists:**
+
+1. **Point the Bpay app at this repo (`B-Pay-backend`) as the ONLY
+   source of truth for its payments and payouts.** No duplicate or
+   parallel payment logic inside the Bpay app itself — every real
+   money movement (pay, payout, verify) routes through this backend,
+   the same "single source of truth" discipline already established
+   elsewhere in this project (Task 34's wallet-write consolidation,
+   the RPC-is-the-only-writer pattern).
+2. **This backend's own modularity is a deliberate, standing
+   constraint on how future payment providers get added, not just an
+   architectural nice-to-have:** **Korapay is, and remains, the
+   primary payment method.** Any additional payment system or API
+   considered for this backend must provide something Korapay does
+   **not** already supply — not a redundant alternative rail for
+   something Korapay already handles. Until a provider's full
+   integration is actually undertaken, add it only as a **stub**
+   (matching this project's own established pattern for
+   Payscribe/JuicyWay elsewhere in this file — routes/structure
+   present, real integration deliberately deferred) — never a half-
+   built live integration.
+
+**Not yet done, deliberately, per this session's own scope:** cloning
+`bpay` (or `Zapier-codes/bpay` once forked), auditing its current
+~50%-done state against this direction, or beginning any actual
+wiring work. That's real, substantial future work for whichever
+session actually has the repo available — this task only records the
+direction so that session doesn't have to re-ask it.
+
+---
